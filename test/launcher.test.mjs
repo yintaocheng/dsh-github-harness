@@ -33,4 +33,17 @@ test('Windows launcher selects config and propagates failure without credentials
   const failure = await run('fail');
   assert.equal(failure.code, 1, 'a failing CLI must never look successful');
   assert.equal(readFileSync(join(fixture, 'harness.local.json'), 'utf8'), '{}');
+  await t.test('external target uses its own config instead of the installed plugin config', async () => {
+    const target = join(fixture, 'another target with spaces');
+    mkdirSync(target);
+    writeFileSync(join(target, 'harness.config.json'), '{}');
+    const invoke = () => command([join(fixture, 'harness.cmd'), 'help'], { cwd: target, env, logDir: join(fixture, 'logs') });
+    const targetFallback = await invoke();
+    assert.equal(targetFallback.code, 0);
+    assert.equal(targetFallback.stdout.trim(), join(target, 'harness.config.json'));
+    writeFileSync(join(target, 'harness.local.json'), '{}');
+    const targetLocal = await invoke();
+    assert.equal(targetLocal.code, 0);
+    assert.equal(targetLocal.stdout.trim(), join(target, 'harness.local.json'));
+  });
 });

@@ -165,7 +165,7 @@ test('legacy validated/no-change checkpoint accepts later feedback instead of de
 });
 test('legacy remote report lacking a validation binding is rechecked without a model turn', async () => {
   const f = fixture(); await runTask(f.args);
-  f.snapshot.pr.body = f.snapshot.pr.body.replace('"v":2', '"v":1').replace(/"validation":\{[^}]+\},/, '');
+  f.snapshot.pr.body = f.snapshot.pr.body.replace('"v":3', '"v":1').replace(/"validation":\{[^}]+\},/, '');
   f.args.state = { key: taskKey(config, 1), branch: branchName(config, 1) };
   assert.equal((await runTask(f.args)).status, 'published');
   assert.equal(f.counts.agents, 1); assert.equal(f.counts.verifies, 2); assert.match(f.args.state.summary, /Tests passed/);
@@ -218,4 +218,85 @@ test('pagination loads beyond first page', async () => {
   let page = 0;
   const api = new GitHub(config, { token: 'test-only', fetchImpl: async () => ({ ok: true, status: 200, json: async () => ++page === 1 ? Array(100).fill({ id: 1 }) : [{ id: 101 }] }) });
   assert.equal((await api.list('/test')).length, 101);
+});
+
+test('changing executor retains the same business task, PR, branch and session', async () => {
+  const f = fixture(); await runTask(f.args);
+  const { key, branch, sessionId, task } = f.args.state, previousRun = f.args.state.lastRun.id;
+  f.args.config.agent.id = 'replacement';
+  assert.equal((await runTask(f.args)).status, 'unchanged');
+  assert.equal(f.args.state.key, key); assert.equal(f.args.state.branch, branch); assert.equal(f.args.state.sessionId, sessionId);
+  assert.deepEqual(f.args.state.task, task); assert.equal(f.args.state.task.key, taskKey(f.args.config, 1));
+  assert.notEqual(f.args.state.lastRun.id, previousRun); assert.equal(f.args.state.lastRun.executor.id, 'replacement');
+  f.snapshot.comments.push({ id: 90, user: { login: 'reviewer' }, body: 'New feedback for replacement executor' });
+  assert.equal((await runTask(f.args)).status, 'published');
+  assert.equal(f.counts.prs, 1); assert.equal(f.counts.agents, 2); assert.equal(f.args.state.sessionId, sessionId);
+});
+for (const waiting of [false, true]) {
+  for (const version of [1, 2]) {
+    test(`lost cache and executor change recover v${version} legacy ${waiting ? 'waiting checkpoint' : 'PR'} in place`, async () => {
+      const f = fixture(), oldKey = 'owner_repo_1_original', oldBranch = 'harness/original/issue-1';
+      f.args.state = { key: oldKey, branch: oldBranch };
+      if (waiting) f.noChanges();
+      await runTask(f.args);
+      const downgrade = body => body.replace(/<!-- dsh-gh-state (\{[^\n]+\}) -->/, (_match, json) => {
+        const data = JSON.parse(json); data.v = version; data.agent = 'original'; delete data.task; delete data.branch;
+        if (version === 1) delete data.validation;
+        return `<!-- dsh-gh-state ${JSON.stringify(data)} -->`;
+      });
+      if (f.snapshot.pr) f.snapshot.pr.body = downgrade(f.snapshot.pr.body);
+      f.snapshot.comments[0].body = downgrade(f.snapshot.comments[0].body);
+      // PR-only recovery also repairs the missing checkpoint using the same marker.
+      if (!waiting) f.snapshot.comments = [];
+      f.args.config.agent.id = 'replacement';
+      f.args.state = { key: taskKey(f.args.config, 1), branch: branchName(f.args.config, 1) };
+      await runTask(f.args);
+      assert.equal(f.args.state.key, oldKey); assert.equal(f.args.state.branch, oldBranch);
+      assert.equal(f.args.state.task.key, taskKey(f.args.config, 1)); assert.equal(f.args.state.sessionId, 'session-one');
+      assert.equal(f.counts.agents, 1); assert.equal(f.counts.prs, waiting ? 0 : 1);
+      assert.equal(f.counts.verifies, version === 1 ? 2 : 1);
+      assert(f.snapshot.comments[0].body.startsWith(markerFor(oldKey)));
+    });
+  }
+}
+test('receipt-only session recovery also restores durable proof without another model turn', async () => {
+  const f = fixture(); await runTask(f.args);
+  f.args.state = { key: taskKey(config, 1), branch: branchName(config, 1), sessionId: 'session-one' };
+  assert.equal((await runTask(f.args)).status, 'unchanged'); assert.equal(f.counts.agents, 1);
+});
+test('conflicting recovered sessions fail before checkout preparation or model execution', async () => {
+  const f = fixture(); await runTask(f.args);
+  f.args.state.sessionId = 'different-session';
+  f.args.repo.prepare = async () => assert.fail('must not prepare on ambiguous session');
+  await assert.rejects(runTask(f.args), /Conflicting task sessions/);
+  assert.equal(f.counts.agents, 1); assert.equal(f.counts.pushes, 1);
+});
+test('ambiguous legacy checkpoints never silently join two executor tasks', async () => {
+  const f = fixture(); f.noChanges();
+  f.args.state = { key: 'owner_repo_1_first', branch: 'harness/first/issue-1' }; await runTask(f.args);
+  const first = f.snapshot.comments[0];
+  f.snapshot.comments.push({ ...first, id: 99, body: first.body.replaceAll('owner_repo_1_first', 'owner_repo_1_second').replaceAll('harness/first/issue-1', 'harness/second/issue-1') });
+  f.args.state = { key: taskKey(config, 1), branch: branchName(config, 1) };
+  f.args.repo.prepare = async () => assert.fail('ambiguous legacy candidates must not prepare');
+  await assert.rejects(runTask(f.args), /Ambiguous task/); assert.equal(f.counts.agents, 1);
+});
+test('configuration mutation during an await cannot change this invocation verification or executor', async () => {
+  const f = fixture(), expectedVerify = structuredClone(f.args.config.verify); f.noChanges();
+  f.args.github.verify = async () => {
+    f.args.config.agent.id = 'changed-after-entry';
+    f.args.config.verify.push(['node', 'next-invocation-only.mjs']);
+    return { login: 'actor' };
+  };
+  await runTask(f.args);
+  assert.equal(f.args.state.lastRun.executor.id, 'solo');
+  assert.deepEqual(f.args.state.verification.map(x => x.command), expectedVerify);
+  assert.equal(f.args.state.validation.verifyHash, hash(expectedVerify));
+  assert.deepEqual(f.args.state.lastRun.verification.commands, expectedVerify);
+});
+test('verified repository ID changes fail before preparing a previously bound task', async () => {
+  const f = fixture();
+  f.args.state.task = { key: taskKey(config, 1), repository: 'github:owner/repo', issue: 1, repositoryId: 123 };
+  f.args.github.verify = async () => ({ login: 'actor', repo: { id: 456 } });
+  f.args.repo.prepare = async () => assert.fail('repository replacement must not prepare');
+  await assert.rejects(runTask(f.args), /repository ID differs/); assert.equal(f.counts.agents, 0);
 });

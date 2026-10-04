@@ -1,8 +1,8 @@
 {
-  "owner": "yintaocheng",
-  "repo": "dsh-github-harness",
+  "owner": "YOUR_ACCOUNT_OR_ORG",
+  "repo": "YOUR_TARGET_REPO",
   "base": "main",
-  "agent": { "id": "solo", "expectedLogin": "yintaocheng" },
+  "agent": { "id": "solo", "expectedLogin": "YOUR_GITHUB_LOGIN" },
   "dsh": { "command": ["dsh", "headless"] },
-  "verify": [["node", "--test", "test/*.test.mjs"]]
+  "verify": [["node", "--test"]]
 }

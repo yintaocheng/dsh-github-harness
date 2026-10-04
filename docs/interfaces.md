@@ -20,7 +20,7 @@
 - [桌面自带 CLI](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/apps/desktop/README.md#bundled-command-runtime)：先完全退出 desktop，再用其自带 CLI 的 `plugin --profile desktop add/list/remove`；这不授权用 CLI boot/dump desktop。
 - [协议处理](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/apps/desktop/src/main.ts#L1228-L1232)：本版只处理打开/聚焦用途的 `dsh://open`，未发现可用的安装深链。
 
-隔离验收采用实际 launcher 的 `DSH_HOME` 与 `--from-default-profile headless --dump-config`，不是不存在的 `--home` 或 bare 模板。禁用测试 profile 的 `headless-startup/headless-runner` 后，在 `appReady` 检查 `ctx.tools.get('github_harness')`，再通过 `appExit` 有界退出；没有启动模型来“猜工具是否存在”。见[桌面验证说明](desktop.md#本次验证的范围)。
+隔离验收采用实际 launcher 的 `DSH_HOME` 与 `--from-default-profile headless --dump-config`，不是不存在的 `--home` 或 bare 模板。禁用测试 profile 的 `headless-startup/headless-runner` 后，在 `appReady` 检查 `ctx.tools.get('github_harness')`，再通过 `appExit` 有界退出；没有启动模型来“猜工具是否存在”。具体验证记录归档在[独立演示仓库](https://github.com/yintaocheng/dsh-github-harness-demo/tree/main/evidence)。
 
 ## GitHub 官方示例的边界
 
@@ -34,4 +34,4 @@
 
 [薄 Cordis 插件](../src/plugin.mjs) 只用和官方 NDJSON 投影相同的 `ctx.on('session/event', ...)` seam，在 turn/start、turn/end 写出任务/session receipt；不调用未核实的私有 Web API。外层 [CLI](../src/cli.mjs) 使用 GitHub 官方 REST / Git 连接公共事实与 DSH。这样现在可以运行，将来需要改消息 / 上下文策略时仍有正式插件接入点。
 
-本机首次 headless smoke 默认 DeepSeek route 返回 401（未记录密钥），随后以独立本地 overlay 复用现有 desktop 的 `cliproxyapi / gpt-6-astra` 路由和 `CLIPROXYAPI_API_KEY` 凭据引用；真实独立 headless 成功返回 `HARNESS_SMOKE_OK`。没有修改全局桌面配置，也没有把凭据值加入项目。
+模型与账号配置属于宿主或目标项目的本地设置，不属于插件分发包。具体模型调用和历史环境问题记录在[演示证据](https://github.com/yintaocheng/dsh-github-harness-demo/tree/main/evidence)中，不能将某台机器的可用路由当作所有用户的默认配置。

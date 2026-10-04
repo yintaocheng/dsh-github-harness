@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto';
+import { taskKey, branchName, markerFor, metadata, createRunContext, validateArtifact, validateTaskIdentity, selectArtifact, taskReport, taskCheckpoints } from './identity.mjs';
+export { taskKey, branchName, markerFor, metadata };
 
 export const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-export const taskKey = (c, issue) => `${c.owner}_${c.repo}_${issue}_${c.agent.id}`;
-export const branchName = (c, issue) => `harness/${c.agent.id}/issue-${issue}`;
-export const markerFor = key => `<!-- dsh-github-harness:${key} -->`;
 export function facts(snapshot, config, marker) {
   const ours = x => x.user?.login?.toLowerCase() === config.agent.expectedLogin.toLowerCase() && x.body?.startsWith(marker);
   const messages = rows => (rows || []).filter(x => !ours(x)).map(x => ({ id: x.id, user: x.user?.login, body: x.body, state: x.state, path: x.path, line: x.line, commit_id: x.commit_id, updated_at: x.updated_at, submitted_at: x.submitted_at }));
@@ -15,15 +14,10 @@ export function facts(snapshot, config, marker) {
     statuses: (f.statuses || []).map(x => ({ id: x.id, context: x.context, state: x.state, description: x.description, target_url: x.target_url })),
   };
 }
-export function metadata(body) {
-  const match = body?.match(/<!-- dsh-gh-state (\{[^\n]+\}) -->/);
-  if (!match) return null;
-  try { return JSON.parse(match[1]); } catch { return null; }
-}
 export function report(state, config, issue) {
   const waiting = state.phase === 'waiting';
   const verification = (state.verification || []).map(({ command, code }) => ({ command, code }));
-  const data = { v: 2, key: state.key, sessionId: state.sessionId, inputHash: state.inputHash, head: state.head, phase: waiting ? 'waiting' : 'done', validation: state.validation, verification, agent: config.agent.id, operator: config.agent.expectedLogin };
+  const data = { v: 3, key: state.key, task: state.task || validateTaskIdentity(config, issue), branch: state.branch, sessionId: state.sessionId, inputHash: state.inputHash, head: state.head, phase: waiting ? 'waiting' : 'done', validation: state.validation, verification, agent: config.agent.id, operator: config.agent.expectedLogin };
   return `${markerFor(state.key)}\n<!-- dsh-gh-state ${JSON.stringify(data)} -->\n${waiting ? `Task #${issue}: waiting for feedback; no reviewable changes and no PR created.` : `Closes #${issue}`}\n\n## Execution checkpoint\n- Agent: \`${config.agent.id}\`; operator: @${config.agent.expectedLogin}; owner: @${config.owner}\n- Session: \`${state.sessionId || 'not recorded'}\`\n- Branch: \`${state.branch}\`; commit: \`${state.head}\`\n${state.prUrl ? `- PR: ${state.prUrl}\n` : ''}\n## Independently executed verification\n- Verified tree: \`${state.validation?.tree || 'not verified'}\`\n- Verification configuration: \`${state.validation?.verifyHash || 'not verified'}\`\n${verification.map(v => `- ${v.command.map(x => JSON.stringify(x)).join(' ')} — exit ${v.code}`).join('\n')}\n\n## Agent summary and unresolved issues (agent-reported, not proof)\n${(state.summary || '').slice(0, 12000)}\n\nNo auto-merge. CI and human review remain required.\n`;
 }
 export function promptFor(snapshot, config, state, inputFacts) {
@@ -50,19 +44,38 @@ async function validateCandidate({ state, repo, config, persist }, candidate, fo
 }
 
 // GitHub feedback selects model turns. A separate tree/config binding governs ALL publication paths.
-export async function runTask({ config, issue, state, github, repo, agent, persist }) {
-  await github.verify();
-  const snapshot = await github.snapshot(issue, state.branch);
+export async function runTask({ config, context, issue, state, github, repo, agent, persist, taskKnown, branches = [] }) {
+  context ||= createRunContext(config, { issue, cwd: repo.cwd });
+  config = context.config;
+  if (context.task?.issue !== issue) throw Error('Run context Issue mismatch');
+  validateTaskIdentity(config, issue, context.task);
+  validateArtifact(config, issue, state);
+  taskKnown ??= Boolean(state.sessionId || state.phase || state.startHead);
+  const access = await github.verify() || {};
+  const snapshot = await github.snapshot(issue, state.branch, { known: taskKnown, key: state.key, branches });
+  if (snapshot.issue.number !== issue) throw Error('GitHub Issue identity mismatch');
   if (snapshot.issue.state !== 'open') throw Error('Issue is closed; no work started');
+  const checkpoints = taskCheckpoints(snapshot.comments, config, issue);
+  const prReport = taskReport(snapshot.pr?.body, config, issue);
+  const selected = selectArtifact(config, issue, [taskKnown && state, snapshot.task, prReport, ...checkpoints.map(x => x.report)]) || validateArtifact(config, issue, state);
+  Object.assign(state, { key: selected.key, branch: selected.branch });
+  if (!snapshot.pr && (state.prNumber || state.prUrl)) throw Error('Recorded task PR is missing; reconcile manually');
   if (snapshot.pr && snapshot.pr.state !== 'open') throw Error('Task PR is closed or merged; no new PR will be created');
   if (snapshot.pr && (snapshot.pr.base.ref !== config.base || snapshot.pr.head.ref !== state.branch)) throw Error('PR branch/base mismatch');
   const marker = markerFor(state.key);
-  const checkpoint = snapshot.comments.find(x => x.user?.login?.toLowerCase() === config.agent.expectedLogin.toLowerCase() && x.body?.startsWith(marker));
+  const checkpoint = checkpoints.find(x => x.report.key === state.key)?.comment;
   const durableBody = snapshot.pr?.body || checkpoint?.body;
   const prior = metadata(durableBody);
-  if (!state.sessionId && prior?.key === state.key && prior.operator === config.agent.expectedLogin && (snapshot.pr || prior.phase === 'waiting')) {
+  state.task = validateTaskIdentity(config, issue, state.task);
+  const repositoryId = selected.task?.repositoryId ?? state.task.repositoryId ?? prior?.task?.repositoryId;
+  if (repositoryId !== undefined && access.repo?.id !== repositoryId) throw Error('Verified repository ID differs from the existing task');
+  if (Number.isSafeInteger(access.repo?.id) && access.repo.id > 0) state.task.repositoryId = access.repo.id;
+  if ((!state.sessionId || !state.phase) && prior?.key === state.key && (snapshot.pr || prior.phase === 'waiting')) {
     Object.assign(state, { sessionId: prior.sessionId, inputHash: prior.inputHash, head: prior.head, phase: snapshot.pr ? 'done' : 'waiting', validation: prior.validation, verification: prior.verification, summary: recoverSummary(durableBody) });
   }
+  state.version = 3;
+  state.lastRun = { id: context.id, taskKey: context.task.key, project: context.project, executor: context.executor, operator: context.operator, verification: context.verification };
+  persist();
   await repo.prepare(state, snapshot.pr);
   const inputFacts = facts(snapshot, config, marker);
   const inputHash = hash(inputFacts);
@@ -101,8 +114,8 @@ export async function runTask({ config, issue, state, github, repo, agent, persi
       return { status: 'unchanged', phase: 'waiting', reason: 'no_changes', sessionId: state.sessionId };
     }
   }
-  const context = { state, repo, config, persist };
-  candidate = await validateCandidate(context, candidate, ranAgent);
+  const validationContext = { state, repo, config, persist };
+  candidate = await validateCandidate(validationContext, candidate, ranAgent);
   if (!snapshot.pr && !candidate.reviewable) {
     state.head = candidate.oldHead; state.phase = 'waiting'; persist();
     await github.checkpoint(issue, marker, report(state, config, issue));
@@ -119,7 +132,7 @@ export async function runTask({ config, issue, state, github, repo, agent, persi
       delete state.validation; state.phase = 'working'; persist();
       throw Error('Commit hook changed HEAD or left uncommitted content; rerun and verify before publication');
     }
-    await validateCandidate(context, candidate);
+    await validateCandidate(validationContext, candidate);
   }
   await github.verify();
   await repo.push(state);

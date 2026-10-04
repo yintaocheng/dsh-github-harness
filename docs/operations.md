@@ -4,7 +4,7 @@
 
 ## 常用命令
 
-从目标仓库根目录执行。Windows 使用[启动器](../harness.cmd)；其他环境使用 `node src/cli.mjs --config harness.local.json` 代替 `harness.cmd`。桌面插件提供[同一执行器的工具入口](desktop.md)。
+从**目标仓库**根目录调用已安装的 `dsh-github-harness --config harness.local.json ACTION`，或使用桌面[工具入口](desktop.md)。目标仓库不需要包含插件源码。下表以开发 checkout 的 Windows [启动器](../harness.cmd)为简写；使用源码时应通过插件文件的绝对路径调用并保留目标 cwd，不能在目标仓库假设存在 `src/cli.mjs`。认证方式见[配置说明](setup.md)。
 
 | 命令 | 用途 |
 | --- | --- |
@@ -21,7 +21,7 @@ CLI 还提供 `issue-create TITLE BODY_FILE` 与 `comment NUMBER BODY_FILE`。`c
 
 1. 核对 GitHub `/user`、配置仓库、仓库权限及本地 HTTPS origin。
 2. 读取 Issue、评论、原 PR 的评论 / review / 行内评论及当前 head 的 CI 摘要。
-3. 创建或复用 `harness/<agent.id>/issue-<number>`，按需启动或恢复同一个 DSH headless 会话。
+3. 新任务使用与执行者名称无关的分支 `harness/issue-<number>`；唯一匹配的旧任务继续保留原 `harness/<agent.id>/issue-<number>` 等工件别名，按需恢复原 DSH 任务会话。业务身份与旧 key 的区别见[项目模型](project-model.md)。
 4. 暂存并固定候选树，检查实际交付文件，独立执行 `verify`；随后再次固定树，拒绝验收过程中改变树或 HEAD 的情况。
 5. 提交后核对最终 tree 和单一预期 parent。hook 改变树时撤销旧证明，并对实际提交内容重验；失败不推送。
 6. 在 push 前再次核对 tree、验收命令摘要、HEAD 与工作区，按**明确 SHA** 非强制推送，再更新原 PR 和 Issue 检查点。

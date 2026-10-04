@@ -4,7 +4,8 @@ import { GitHub } from './github.mjs';
 import { Repo, remoteMatches } from './repo.mjs';
 import { load, save, acquire, unlock } from './state.mjs';
 import { runDsh } from './dsh.mjs';
-import { runTask, taskKey, branchName } from './core.mjs';
+import { runTask } from './core.mjs';
+import { createRunContext, readLocalTask, isTaskBranch } from './identity.mjs';
 import { command, git } from './process.mjs';
 
 export function validateConfig(c) {
@@ -34,13 +35,14 @@ export async function execute(argv = [], { cwd = process.cwd(), signal, getToken
   let parsed;
   try { parsed = JSON.parse(readFileSync(resolve(cwd, configPath), 'utf8')); }
   catch { throw Error(`Cannot read valid harness configuration: ${resolve(cwd, configPath)}. Copy harness.config.json to your workspace and configure repository, operator and DSH command; never put a token in it.`); }
-  const config = validateConfig(parsed), root = join(cwd, '.harness');
-  if (action === 'unlock') { unlock(root); return { status: 'unlocked' }; }
   const issue = Number(rawIssue);
   if (['run', 'status', 'comment'].includes(action) && (!Number.isSafeInteger(issue) || issue < 1)) throw Error('Issue number must be a positive integer');
+  const context = createRunContext(validateConfig(parsed), { cwd, action, issue: ['run', 'status', 'comment'].includes(action) ? issue : undefined });
+  const config = context.config, root = join(context.project.workdir, '.harness');
+  if (action === 'unlock') { unlock(root); return { status: 'unlocked' }; }
   if (action === 'status') {
-    const key = taskKey(config, issue);
-    return { task: load(join(root, `${key}.json`)), session: load(join(root, `${key}.session.json`)), lock: load(join(root, 'lock.json')) };
+    const local = readLocalTask(root, config, issue);
+    return { task: local.known ? local.state : null, session: local.session, lock: load(join(root, 'lock.json')) };
   }
   const token = getToken ? await getToken({ expectedLogin: config.agent.expectedLogin, signal }) : process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   const github = new GitHub(config, { token, signal });
@@ -71,14 +73,15 @@ export async function execute(argv = [], { cwd = process.cwd(), signal, getToken
       const result = await github.request(`${github.root}/issues${action === 'comment' ? `/${issue}/comments` : ''}`, { method: 'POST', body: { ...(action === 'issue-create' ? { title: rawIssue } : {}), body: readFileSync(resolve(cwd, extra[0]), 'utf8') } });
       return { ...(action === 'issue-create' ? { issue: result.number } : {}), url: result.html_url };
     }
-    const key = taskKey(config, issue), path = join(root, `${key}.json`);
-    const state = load(path) || { version: 2, key, branch: branchName(config, issue) };
-    if (state.key !== key || state.branch !== branchName(config, issue)) throw Error('Local task identity mismatch');
-    state.version = 2;
-    const persist = () => save(path, state);
+    const local = readLocalTask(root, config, issue), state = local.state;
+    // Read-only branch discovery catches cache loss even before a PR/checkpoint existed.
+    const refs = await git(['for-each-ref', '--format=%(refname)', 'refs/heads/harness/', 'refs/remotes/origin/harness/'], options);
+    const branches = refs.split('\n').map(x => x.replace(/^refs\/(?:heads|remotes\/origin)\//, '')).filter(x => isTaskBranch(x, issue));
+    // The unique legacy alias can be adopted during remote recovery; persist to THAT path.
+    const persist = () => save(join(root, `${state.key}.json`), state);
     const repo = new Repo(config, cwd, onSpawn, github.token, signal);
     const agent = prompt => runDsh({ config, state, prompt, root, cwd, onSpawn, persist, signal });
-    return await runTask({ config, issue, state, github, repo, agent, persist });
+    return await runTask({ config, context, issue, state, github, repo, agent, persist, taskKnown: local.known, branches });
   } finally { lock.release(); }
 }
 export function diagnosisFailed(result) { return result?.github?.status === 'failed' || (result?.dshHelpExit !== undefined && result.dshHelpExit !== 0); }

@@ -1,7 +1,9 @@
+import { snapshotConfig, isTaskBranch, taskReport, selectArtifact, taskKey, branchName, taskCheckpoints } from './identity.mjs';
+
 export class GitHub {
   constructor(config, { token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN, fetchImpl = fetch, signal } = {}) {
     if (!token) throw Error('No GitHub credential. Set GH_TOKEN in the environment or use scripts/run.ps1 (Git Credential Manager).');
-    this.config = config; this.token = token; this.fetch = fetchImpl; this.signal = signal;
+    this.config = snapshotConfig(config); this.token = token; this.fetch = fetchImpl; this.signal = signal;
     this.root = `/repos/${config.owner}/${config.repo}`;
   }
   async request(path, { method = 'GET', body, allow404 = false } = {}) {
@@ -129,7 +131,9 @@ export class GitHub {
   async verify() {
     const login = await this.identity();
     const repo = await this.request(this.root);
-    if (repo.full_name.toLowerCase() !== `${this.config.owner}/${this.config.repo}`.toLowerCase()) throw Error('GitHub repository mismatch');
+    if (typeof repo?.full_name !== 'string' || repo.full_name.toLowerCase() !== `${this.config.owner}/${this.config.repo}`.toLowerCase()) throw Error('GitHub repository mismatch');
+    if (this.repositoryId !== undefined && repo.id !== this.repositoryId) throw Error('GitHub repository ID changed during invocation');
+    if (Number.isSafeInteger(repo.id) && repo.id > 0) this.repositoryId = repo.id;
     if (!repo.permissions?.push) throw Error('Authenticated identity lacks repository push permission');
     return { login, repo };
   }
@@ -145,11 +149,31 @@ export class GitHub {
     if (rows.length > 1) throw Error('Multiple PRs for task branch; resolve manually');
     return rows[0] || null;
   }
-  async snapshot(issueNumber, branch) {
+  async snapshot(issueNumber, branch, { known = false, key, branches = [] } = {}) {
     const issue = await this.request(`${this.root}/issues/${issueNumber}`);
     if (issue.pull_request) throw Error('Expected an Issue number, not a PR number');
+    if (issue.number !== issueNumber) throw Error('GitHub Issue identity mismatch');
     const comments = await this.list(`${this.root}/issues/${issueNumber}/comments`);
-    const pr = await this.pull(branch);
+    const checkpoints = taskCheckpoints(comments, this.config, issueNumber).map(x => x.report);
+    // Branch-filtering by the CURRENT executor would miss legacy PRs after cache loss.
+    // List all states, including closed PRs, and refuse ambiguity instead of choosing one.
+    const pulls = (await this.list(`${this.root}/pulls?state=all`)).filter(x => isTaskBranch(x.head?.ref, issueNumber)
+      && (!x.head.repo?.full_name || x.head.repo.full_name.toLowerCase() === `${this.config.owner}/${this.config.repo}`.toLowerCase()));
+    const reports = pulls.map(pr => {
+      const report = taskReport(pr.body, this.config, issueNumber);
+      if (!report || report.branch !== pr.head.ref) throw Error('Unrecognized task PR identity; resolve manually');
+      return report;
+    });
+    const task = selectArtifact(this.config, issueNumber, [known && { key, branch }, ...checkpoints, ...reports]);
+    const refs = await this.request(`${this.root}/git/matching-refs/heads/harness/`);
+    if (!Array.isArray(refs)) throw Error('Unexpected GitHub reference response');
+    const existingBranches = new Set([...branches, ...refs.map(x => x.ref?.replace(/^refs\/heads\//, ''))].filter(x => isTaskBranch(x, issueNumber)));
+    if ([...existingBranches].some(x => x !== task?.branch)) throw Error('Ambiguous or unrecorded task branch; recover its checkpoint/session manually');
+    const selected = task || { key: taskKey(this.config, issueNumber), branch: branchName(this.config, issueNumber) };
+    const matches = pulls.filter(x => x.head.ref === selected.branch);
+    if (matches.length > 1) throw Error('Multiple PRs for task branch; resolve manually');
+    const pr = matches[0] || null;
+    if (!pr && checkpoints.length && checkpoints[0].data.phase !== 'waiting') throw Error('Task checkpoint references a missing PR; resolve manually');
     let feedback = {};
     if (pr) {
       const [comments, reviews, inline, checks, statuses] = await Promise.all([
@@ -159,7 +183,7 @@ export class GitHub {
       ]);
       feedback = { comments, reviews, inline, checks, statuses };
     }
-    return { issue, comments, pr, feedback };
+    return { issue, comments, pr, feedback, task: selected };
   }
   async publishPull(branch, title, body) {
     await this.verify();

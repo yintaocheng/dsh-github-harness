@@ -1,9 +1,18 @@
 {
   "name": "dsh-github-harness",
-  "version": "0.2.0",
-  "private": true,
+  "version": "0.3.0",
   "type": "module",
-  "description": "Single-agent GitHub Issue to PR harness with a DSH desktop tool bundle",
+  "description": "Reusable DSH plugin and CLI for a single GitHub Issue-to-PR task in a target repository",
+  "license": "MIT",
+  "author": "yintaocheng",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yintaocheng/dsh-github-harness.git"
+  },
+  "homepage": "https://github.com/yintaocheng/dsh-github-harness#readme",
+  "bugs": { "url": "https://github.com/yintaocheng/dsh-github-harness/issues" },
+  "keywords": ["dsh-plugin", "deepseek-harness", "github", "issue", "pull-request", "single-agent", "cli"],
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org" },
   "engines": { "node": ">=22" },
   "bin": { "dsh-github-harness": "./src/cli.mjs" },
   "exports": {
@@ -12,7 +21,21 @@
     "./package.json": "./package.json",
     "./cordis.patch.yml": "./cordis.patch.yml"
   },
-  "files": ["src", "test", "scripts/run.ps1", "harness.cmd", "harness.config.json", "cordis.patch.yml", "README.md", "docs"],
+  "files": [
+    "src",
+    "scripts/run.ps1",
+    "harness.cmd",
+    "harness.config.json",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "docs/setup.md",
+    "docs/desktop.md",
+    "docs/operations.md",
+    "docs/interfaces.md",
+    "docs/distribution.md",
+    "docs/project-model.md"
+  ],
   "dsh": { "manifestVersion": 1, "bundle": { "patch": "./cordis.patch.yml" } },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
@@ -21,6 +44,12 @@
     "@deepseek-ai/dsh-sandbox-policy": "0.2.0-rc.2",
     "@deepseek-ai/dsh-user-approval": "0.2.0-rc.2"
   },
-  "peerDependenciesMeta": { "@deepseek-ai/dsh-user-approval": { "optional": true } },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": { "optional": true },
+    "@deepseek-ai/dsh-tools": { "optional": true },
+    "@deepseek-ai/dsh-sandbox": { "optional": true },
+    "@deepseek-ai/dsh-sandbox-policy": { "optional": true },
+    "@deepseek-ai/dsh-user-approval": { "optional": true }
+  },
   "scripts": { "test": "node --test test/*.test.mjs" }
 }
