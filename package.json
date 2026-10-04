@@ -1,0 +1,11 @@
+{
+  "name": "dsh-github-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A minimal single-agent GitHub task loop for DeepSeek Harness",
+  "engines": { "node": ">=22" },
+  "bin": { "dsh-github-harness": "./src/cli.mjs" },
+  "exports": { "./plugin": "./src/plugin.mjs" },
+  "scripts": { "test": "node --test test/*.test.mjs" }
+}

@@ -1,0 +1,8 @@
+{
+  "owner": "yintaocheng",
+  "repo": "dsh-github-harness",
+  "base": "main",
+  "agent": { "id": "solo", "expectedLogin": "yintaocheng" },
+  "dsh": { "command": ["dsh", "headless"] },
+  "verify": [["node", "--test", "test/*.test.mjs"]]
+}
