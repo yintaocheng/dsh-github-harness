@@ -70,6 +70,17 @@ node src/cli.mjs status 1
 
 本地操作身份依赖当前环境，而不是 agent 名字。后续可新增不同 `agent.id` 和 `expectedLogin`，但首版工作目录锁只允许一个执行者；**不能据此声称已实现多 agent 并行**。
 
+## 手动 Issue 引用解析
+
+独立纯函数 `parseIssueRef(text)` 可解析 `owner/repo#123`，去除首尾空白并保留 owner/repo 拼写。非法输入会抛出异常；Issue 编号必须是正的安全整数。不接受命令 / shell 标点，且尚未接入 CLI，现有命令行为不变。
+
+```js
+import { parseIssueRef } from './src/issue-ref.mjs';
+
+parseIssueRef('  Owner/my-repo#123  ');
+// => { owner: 'Owner', repo: 'my-repo', issue: 123 }
+```
+
 ## 去重与恢复
 
 - 稳定分支：`harness/<agent.id>/issue-<number>`。按 head 查询所有状态的 PR；已有 open PR 更新，closed / merged PR 停止，绝不偷偷重开。
