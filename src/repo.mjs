@@ -1,18 +1,17 @@
-import { realpathSync, readFileSync, lstatSync } from 'node:fs';
-import { join } from 'node:path';
+import { realpathSync } from 'node:fs';
 import { command, git } from './process.mjs';
+import { hash } from './core.mjs';
 
 export function remoteMatches(url, config) {
   return [
     `https://github.com/${config.owner}/${config.repo}`, `https://github.com/${config.owner}/${config.repo}.git`,
   ].some(x => x.toLowerCase() === url.toLowerCase());
 }
-// Bind Git HTTPS to exactly the token already verified by GET /user. No token in
-// argv, URL, Git config files or logs. The environment exists only for Git children.
+// Bind Git HTTPS to exactly the token already verified by GET /user.
 export function gitAuthEnv(token, parent = process.env) {
   if (!token) throw Error('Verified GitHub credential required for Git transport');
   const env = { ...parent, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
-  for (const key of Object.keys(env)) if (/^GIT_TRACE|^GIT_CURL_VERBOSE$|^GIT_CONFIG_PARAMETERS$/.test(key)) delete env[key];
+  for (const key of Object.keys(env)) if (/^GIT_TRACE|^GIT_CURL_VERBOSE$|^GIT_CONFIG_PARAMETERS$/i.test(key)) delete env[key];
   let count = Number(env.GIT_CONFIG_COUNT || 0);
   if (!Number.isSafeInteger(count) || count < 0 || count > 100) throw Error('Invalid inherited Git configuration count');
   for (const [key, value] of [
@@ -22,8 +21,9 @@ export function gitAuthEnv(token, parent = process.env) {
   env.GIT_CONFIG_COUNT = String(count);
   return env;
 }
+const names = text => text.split('\0').filter(Boolean);
 export class Repo {
-  constructor(config, cwd, onSpawn, token) { this.config = config; this.cwd = cwd; this.options = { cwd, onSpawn }; this.token = token; }
+  constructor(config, cwd, onSpawn, token, signal) { this.config = config; this.cwd = cwd; this.options = { cwd, onSpawn, signal }; this.token = token; }
   git(args) { return git(args, ['fetch', 'push'].includes(args[0]) ? { ...this.options, env: gitAuthEnv(this.token) } : this.options); }
   async identity() {
     const root = await this.git(['rev-parse', '--show-toplevel']);
@@ -71,42 +71,64 @@ export class Repo {
   }
   async stage(state) {
     if (await this.git(['branch', '--show-current']) !== state.branch) throw Error('Agent changed task branch');
-    // Scan the actual candidate files, not model claims. This is a basic guard, not a full secret scanner.
-    const names = (await this.git(['ls-files', '--cached', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean);
-    for (const name of names) {
-      if (/^\.harness\/|^\.reference\/|(^|\/)\.env($|\.)|\.(pem|p12|key)$/i.test(name)) throw Error(`Refusing sensitive/generated file: ${name}`);
-      const path = join(this.cwd, name);
-      let stat; try { stat = lstatSync(path); } catch (e) { if (e.code === 'ENOENT') continue; throw e; }
-      if (stat.isSymbolicLink()) throw Error('MVP does not publish symlinks');
-      if (!stat.isFile()) continue;
-      if (stat.size > 2 * 1024 * 1024) throw Error(`File too large for minimal publication guard: ${name}`);
-      const text = readFileSync(path, 'utf8');
-      if (/gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text)) throw Error(`Potential credential in ${name}; refusing publication`);
-    }
     await this.git(['add', '--all', '--', '.']);
     const tree = await this.git(['write-tree']);
     const oldHead = await this.head();
-    const changed = await this.git(['diff', '--cached', '--name-only']);
-    return { tree, oldHead, changed: changed.split('\n').filter(Boolean) };
+    const base = await this.git(['merge-base', `origin/${this.config.base}`, oldHead]);
+    // Freeze and scan Git blobs in THIS delivery, including earlier task commits.
+    // Existing, unchanged images/data are not subjected to the new-file size limit.
+    const delivery = names(await this.git(['diff', '--name-only', '--no-renames', '-z', base, tree, '--']));
+    const changedFiles = names(await this.git(['diff', '--name-only', '--diff-filter=ACMRT', '--no-renames', '-z', base, tree, '--']));
+    const entries = new Map(names(await this.git(['ls-tree', '-r', '-z', tree])).map(entry => {
+      const tab = entry.indexOf('\t');
+      return [entry.slice(tab + 1), entry.slice(0, tab).split(' ')];
+    }));
+    // Runtime state must never be tracked, even if it predates this task.
+    for (const name of entries.keys()) if (/^\.(harness|reference)\//i.test(name)) throw Error(`Refusing sensitive/generated file: ${name}`);
+    for (const name of changedFiles) {
+      if (/(^|\/)\.env($|\.)|\.(pem|p12|key)$|\.local\.json$/i.test(name)) throw Error(`Refusing sensitive/generated file: ${name}`);
+      const [mode, type, oid] = entries.get(name) || [];
+      if (mode === '120000') throw Error('MVP does not publish symlinks');
+      if (type !== 'blob') throw Error(`Unsupported candidate file type: ${name}`);
+      if (Number(await this.git(['cat-file', '-s', oid])) > 2 * 1024 * 1024) throw Error(`File too large for minimal publication guard: ${name}`);
+      // Do not retain raw candidate content (especially a rejected secret) in diagnostic logs.
+      const blob = await command(['git', 'cat-file', 'blob', oid], { ...this.options, discardLogs: true });
+      if (blob.code !== 0) throw Error(`Cannot read candidate Git blob: ${name}`);
+      const text = blob.stdout;
+      if (/gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text)) throw Error(`Potential credential in ${name}; refusing publication`);
+    }
+    const changed = names(await this.git(['diff', '--name-only', '--no-renames', '-z', oldHead, tree, '--']));
+    return { tree, oldHead, changed, base, reviewable: delivery.length > 0 };
+  }
+  async commitResult(state, head) {
+    if (head !== state.prepared.oldHead) {
+      const parents = (await this.git(['rev-list', '--parents', '-n', '1', head])).split(' ').slice(1);
+      if (parents.length !== 1 || parents[0] !== state.prepared.oldHead) throw Error('Unexpected HEAD parent during commit/recovery');
+    }
+    const tree = await this.git(['rev-parse', `${head}^{tree}`]);
+    return { head, tree, needsValidation: tree !== state.prepared.tree };
+  }
+  async recoverCommit(state) {
+    if (!state.prepared?.oldHead) throw Error('Validated state is missing its commit intent');
+    const head = await this.head();
+    return head === state.prepared.oldHead ? null : this.commitResult(state, head);
   }
   async commit(state) {
     if (await this.git(['branch', '--show-current']) !== state.branch) throw Error('Task branch changed');
+    const recovered = await this.recoverCommit(state);
+    if (recovered) return recovered;
     if (await this.git(['diff', '--name-only'])) throw Error('Worktree changed after verification');
     if (await this.git(['ls-files', '--others', '--exclude-standard'])) throw Error('Untracked changes after verification');
     if (await this.git(['write-tree']) !== state.prepared.tree) throw Error('Index changed after verification');
-    const head = await this.head();
-    if (head !== state.prepared.oldHead) {
-      if (await this.git(['rev-parse', 'HEAD^{tree}']) !== state.prepared.tree || await this.git(['rev-parse', 'HEAD^']) !== state.prepared.oldHead) throw Error('Unexpected HEAD during commit recovery');
-      return head;
-    }
     if (state.prepared.changed.length) await this.git(['-c', `user.name=${this.config.agent.expectedLogin}`, '-c', `user.email=${this.config.agent.expectedLogin}@users.noreply.github.com`, 'commit', '-m', `Resolve task ${state.key}`]);
-    const difference = await this.git(['rev-list', '--count', `origin/${this.config.base}..HEAD`]);
-    if (difference === '0') throw Error('No task changes to review; no empty PR created');
-    return this.head();
+    // A successful git commit is NOT proof that hooks preserved the tested tree.
+    return this.commitResult(state, await this.head());
   }
   async push(state) {
     await this.identity();
     if (await this.git(['branch', '--show-current']) !== state.branch || await this.head() !== state.head || await this.git(['status', '--porcelain'])) throw Error('Branch, HEAD or worktree changed before publication');
-    await this.git(['push', '--set-upstream', 'origin', `HEAD:refs/heads/${state.branch}`]);
+    if (state.validation?.verifyHash !== hash(this.config.verify) || state.validation?.tree !== await this.git(['rev-parse', `${state.head}^{tree}`])) throw Error('Publication candidate lacks matching tree/config verification');
+    // Pin the immutable object, not a symbolic HEAD that a pre-push hook could change.
+    await this.git(['push', '--set-upstream', 'origin', `${state.head}:refs/heads/${state.branch}`]);
   }
 }

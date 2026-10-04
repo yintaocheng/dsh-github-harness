@@ -1,5 +1,51 @@
 # 实际验证记录
 
+## v0.2.0：六项修复与桌面安装适配
+
+2026-10-04，Windows / Node v22.19.0 / Git 2.51.0.windows.1 / 桌面 DSH 0.2.0-rc.2。
+
+### 回归结果
+
+标准命令 `node --test test/*.test.mjs`：**81 tests，81 pass，0 fail，0 skipped**（65 个顶层测试，含子测试）。这不是把原 PR 分支的旧测试数混算进来。
+
+| 问题 | 实际覆盖 |
+| --- | --- |
+| 首轮无修改卡住 | 真实 Git：`waiting → unchanged → 新反馈后 published`；mock 另测旧 `validated` 死角迁移及无 PR 的 Issue 检查点恢复 |
+| 验收配置未参与去重 | `done / validated / publishing` 分别变更命令，重验且不增加模型轮次；真实 Git 的同 HEAD 新失败验收会阻止再次发布 |
+| hook 改变最终提交 | 真实 pre-commit 改写并暂存文件；新内容失败时没有 push/PR，成功时第二次验收绑定实际 HEAD tree；另测相同树但错误 parent 的恢复拒绝 |
+| 整库扫描误伤大文件 | 真实基线含超过 2 MiB 的未修改文件，小变更可暂存；该大文件被修改后仍拒绝；新增凭据与被跟踪运行态仍拒绝 |
+| Commit statuses 权限与 doctor | 纯 mock 覆盖私库 statuses 403、其他读取失败、空仓库/不可见区分、公有端点不证明 scope；实际 public 仓库 doctor 的四类 GET 均成功，写能力仍标记未验证 |
+| Windows 环境键大小写 | 对含混合大小写实际键名的环境对象测试删除全部 GH_TOKEN/GITHUB_TOKEN 变体，并保持输入与其他变量不变；不声称进行了真实凭据泄漏实验 |
+
+另覆盖验证命令改动候选树、旧远程元数据无绑定时重验、发布响应丢失、检查点重试不吞反馈、同 PR 无新增修改等路径。测试文件为 [core](../test/core.test.mjs)、[真实 Git](../test/repo.test.mjs)、[认证](../test/auth.test.mjs)、[桌面](../test/desktop.test.mjs) 和 [Windows 启动器](../test/launcher.test.mjs)。
+
+### 桌面安装与真实 Loader
+
+1. `npm pack --ignore-scripts` 生成带 bundle patch 和独立 Host 入口的 tarball，白名单排除本地配置、运行日志与参考缓存。
+2. 通过桌面自带 CLI，在项目忽略目录中的全新 `DSH_HOME` 初始化命名 headless profile；没有复用、修改或退出用户正在使用的 desktop/headless profile。
+3. 官方 `plugin --profile ... add <绝对 tarball> --ignore-scripts` 退出 0，profile 的 bundle 列表真实包含 `dsh-github-harness`。
+4. 禁用该测试 profile 的模型启动器，完整 boot/audit 成功后的 `appReady` 取得注册工具，实际返回：
+
+   ```json
+   {"ok":true,"registered":true,"restrictedCallDenied":true,"mode":"read-only"}
+   ```
+
+5. 仅在独立测试启动进程中使用授权模式，调用**已安装包**的 `status`，实际返回：
+
+   ```json
+   {"ok":true,"registered":true,"action":"status","workspaceCorrect":true,"phase":"done","mode":"danger-full-access"}
+   ```
+
+   核对的是项目中 Issue #3 的缓存 key；不是安装目录，也不是模型口头声称工具存在。此调用不需要 GitHub 凭据。
+6. 官方 CLI 从**该隔离测试 profile** 移除包后，重新完整启动 Loader，返回 `{"ok":true,"removed":true,"toolAbsent":true}`。这是冷启动移除验证，不冒充当前 GUI 的热卸载测试。
+7. 桌面回归测试另外验证：加载声明无副作用、受限模式先拒绝再谈 I/O、显式 cwd、不变更全局 cwd、status 不创建状态目录或查询凭据、取消 HTTP 后释放锁、真实父子进程树终止、启动检查点失败不留子进程。
+
+遇到的本机环境问题：npm 原缓存指向不可写的 Program Files，首次 pack 因 EPERM 失败；改用命令级项目缓存后成功，没有提权、改 ACL 或修改全局 npm 配置。pnpm 提示 core peers 未作为本地普通依赖安装；本次使用桌面 carrier 提供的 runtime，后续真实启动审计和工具调用成功，没有复制第二份 DSH/Cordis。移除时发现 pnpm 11 的 `remove` 不接受 `--ignore-scripts`，改为进程级设置及原测试 store 后成功；正式使用文档采用已验证的受支持参数。候选 blob 扫描另外验证了被拒绝的凭据样本不会残留在持久日志中。
+
+本节记录的是已执行的本地 tarball 安装与 Host 行为。固定 GitHub tag 的网络安装在发布后另行核验。没有把它声称为当前桌面 GUI 已被自动安装，也没有重新跑一次模型 Issue→PR 来冒充桌面完整业务验证。下方两次真实模型任务是先前阶段证据，原 PR 仍保留审查，不自动合并。
+
+---
+
 验证日期：2026-10-04，Asia/Shanghai。首轮 GitHub 事实采集：16:23；后续 README 公开版验证见文末。不是仅用 mock 声称端到端成功。
 
 ## 环境、身份与交付位置

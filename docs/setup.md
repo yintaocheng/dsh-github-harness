@@ -69,7 +69,22 @@ node src/cli.mjs --config harness.local.json run 1
 
 不要把 token 写入脚本、Git URL、提示词或命令历史。GitHub API 与 Git HTTPS 使用同一个经核验的 token。
 
-目标仓库需要 Contents、Issues、Pull requests 的相应读写权限，以及 Checks / Actions 读取权限。创建仓库需要额外权限；推送 workflow 文件还需 GitHub 要求的 workflow 权限。实际权限取决于使用的是 OAuth、经典 token 还是细粒度 token。
+使用 fine-grained personal access token 时，请在目标仓库的 **Repository permissions** 中配置：
+
+| 权限 | 最低访问级别 | 用途 |
+| --- | --- | --- |
+| Contents | Read and write | 读取基线分支/代码、推送任务提交 |
+| Issues | Read and write | 读取任务与评论、创建任务/维护检查点 |
+| Pull requests | Read and write | 读取 PR 与审查、创建或更新 PR |
+| Commit statuses | **Read-only** | 读取 `GET /repos/{owner}/{repo}/commits/{ref}/statuses` 的提交状态反馈 |
+| Checks | Read-only | 读取基线提交或 PR head 的 check runs |
+| Metadata | Read-only（GitHub 自动提供） | 核验仓库身份 |
+
+**Commit statuses 与 Checks 是不同权限，不能互相替代。** [GitHub 官方：List commit statuses for a reference](https://docs.github.com/en/rest/commits/statuses#list-commit-statuses-for-a-reference) 明确要求 fine-grained token 的 **Commit statuses: read**。该文档也说明：仅访问 **public 资源**时，这个接口允许无需认证、或无需上述权限读取。因此，在公开仓库上 GET 成功只证明资源当前可读，**不证明当前 token 已获该 scope**；私有仓库必须具备相应授权。
+
+`doctor` 的 GitHub 诊断先核验实际登录账户与完整 `owner/repo`，随后只做 GET：验证 Issues、Pull requests 读取，并解析配置的 `base` 分支 SHA，真实调用该 SHA 的 statuses 与 check-runs 接口。仓库尚未 bootstrap（或对当前凭据不可见）、没有基线提交或缺少配置的分支时，会明确显示相关能力**尚未验证**，而不是报告全部可用。HTTP 403 属于读取失败/能力不足（也可能受组织策略或限流影响），不会被当成空仓库。
+
+只读探测不能无损证明 token 的写权限；仓库 `push` 权限也不等同于 token-specific 写 scope。即使所有读探测通过，创建 Issue/PR、评论和推送等操作的授权仍未验证。创建仓库需要额外权限；若还需读取 Actions 运行或日志，应另外授予 Actions: read；推送 workflow 文件还需 GitHub 要求的 workflow 权限。实际权限仍取决于 OAuth、经典 token、细粒度 token 以及组织授权策略。
 
 ## 检查 DSH 模型
 

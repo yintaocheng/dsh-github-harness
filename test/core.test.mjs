@@ -10,8 +10,9 @@ const config = { owner: 'owner', repo: 'repo', base: 'main', agent: { id: 'solo'
 function fixture() {
   const state = { key: taskKey(config, 1), branch: branchName(config, 1) };
   const snapshot = { issue: { number: 1, title: 'task', body: 'acceptance', state: 'open' }, comments: [], pr: null, feedback: {} };
-  const counts = { agents: 0, prs: 0, checkpoints: 0, commits: 0 };
-  let head = 'base', publishFailure = false, checkpointFailure = false, validation = 0;
+  const counts = { agents: 0, prs: 0, checkpoints: 0, commits: 0, verifies: 0, pushes: 0 };
+  let head = 'base', headTree = 'base-tree', tree = headTree;
+  let publishFailure = false, checkpointFailure = false, pushFailure = false, commitFailure = false, validation = 0, makeChanges = true, hookTree = null;
   const github = {
     async verify() { return { login: 'actor' }; }, async snapshot() { return structuredClone(snapshot); },
     async publishPull(branch, title, body) {
@@ -28,12 +29,23 @@ function fixture() {
     },
   };
   const repo = {
-    async prepare() {}, async head() { return head; }, async verify() { return [{ command: ['node', '--test'], code: validation }]; },
-    async stage() { return { tree: `tree-${counts.agents}`, oldHead: head, changed: ['code'] }; },
-    async commit() { counts.commits++; head = `sha-${counts.commits}`; return head; }, async push() {},
+    async prepare() {}, async head() { return head; },
+    async verify(commands) { counts.verifies++; return commands.map(command => ({ command, code: validation || (tree === 'unsafe' ? 1 : 0) })); },
+    async stage() { return { tree, oldHead: head, changed: tree === headTree ? [] : ['code'], reviewable: tree !== 'base-tree' }; },
+    async recoverCommit(s) { return head === s.prepared.oldHead ? null : { head, tree: headTree, needsValidation: headTree !== s.prepared.tree }; },
+    async commit(s) {
+      if (commitFailure) { commitFailure = false; throw Error('interrupted before commit'); }
+      if (tree !== headTree) { counts.commits++; head = `sha-${counts.commits}`; headTree = tree = hookTree || tree; }
+      return { head, tree: headTree, needsValidation: headTree !== s.prepared.tree };
+    },
+    async push(s) {
+      assert.equal(s.validation.tree, headTree); assert.equal(s.validation.verifyHash, hash(args.config.verify));
+      counts.pushes++;
+      if (pushFailure) { pushFailure = false; throw Error('push disconnected'); }
+    },
   };
-  const args = { config, issue: 1, state, github, repo, persist() {}, async agent() { counts.agents++; state.sessionId ||= 'session-one'; return 'Implemented. Tests passed. Unresolved: none.'; } };
-  return { args, counts, snapshot, failPR() { publishFailure = true; }, failCheckpoint() { checkpointFailure = true; }, failValidation() { validation = 1; } };
+  const args = { config: structuredClone(config), issue: 1, state, github, repo, persist() {}, async agent() { counts.agents++; args.state.sessionId ||= 'session-one'; if (makeChanges) tree = `tree-${counts.agents}`; return 'Implemented. Tests passed. Unresolved: none.'; } };
+  return { args, counts, snapshot, failPR() { publishFailure = true; }, failCheckpoint() { checkpointFailure = true; }, failValidation() { validation = 1; }, failPush() { pushFailure = true; }, failCommit() { commitFailure = true; }, noChanges(value = true) { makeChanges = !value; }, hook(value) { hookTree = value; }, changeTree(value) { tree = value; } };
 }
 
 test('first Issue creates one PR; repeated run reuses it without model or commit', async () => {
@@ -85,6 +97,84 @@ test('missing Issue checkpoint is repaired from PR without losing verification',
   assert.equal((await runTask(f.args)).status, 'unchanged');
   assert.match(f.snapshot.comments[0].body, /exit 0/);
   assert.equal(f.counts.agents, 1);
+});
+test('first no-change turn waits, deduplicates, and resumes on new feedback', async () => {
+  const f = fixture(); f.noChanges();
+  assert.equal((await runTask(f.args)).status, 'waiting');
+  assert.equal(f.args.state.phase, 'waiting'); assert.equal(f.counts.prs, 0); assert.equal(f.counts.pushes, 0);
+  assert.equal((await runTask(f.args)).status, 'unchanged'); assert.equal(f.counts.agents, 1);
+  assert.match(f.snapshot.comments[0].body, /waiting for feedback/);
+  f.snapshot.comments.push({ id: 22, user: { login: 'reviewer' }, body: 'Here are the missing requirements' });
+  f.noChanges(false);
+  assert.equal((await runTask(f.args)).status, 'published'); assert.equal(f.counts.agents, 2);
+});
+test('waiting session can be recovered from Issue checkpoint without a PR', async () => {
+  const f = fixture(); f.noChanges(); await runTask(f.args);
+  f.args.state = { key: taskKey(config, 1), branch: branchName(config, 1) };
+  assert.equal((await runTask(f.args)).status, 'unchanged');
+  assert.equal(f.args.state.sessionId, 'session-one'); assert.equal(f.args.state.phase, 'waiting'); assert.equal(f.counts.agents, 1);
+});
+test('existing PR with no further edits retains its reviewable commit', async () => {
+  const f = fixture(); await runTask(f.args); const head = f.args.state.head;
+  f.noChanges(); f.snapshot.comments.push({ id: 22, user: { login: 'reviewer' }, body: 'Confirm existing behavior' });
+  assert.equal((await runTask(f.args)).status, 'published');
+  assert.equal(f.args.state.head, head); assert.equal(f.counts.commits, 1); assert.equal(f.counts.prs, 1); assert.equal(f.counts.agents, 2);
+});
+for (const phase of ['done', 'validated', 'publishing']) {
+  test(`${phase}: acceptance changes revalidate the candidate without a model turn`, async () => {
+    const f = fixture();
+    if (phase === 'validated') f.failCommit();
+    if (phase === 'publishing') f.failPush();
+    if (phase === 'done') await runTask(f.args); else await assert.rejects(runTask(f.args));
+    assert.equal(f.args.state.phase, phase);
+    f.args.config.verify.push(['node', 'additional-acceptance.mjs']);
+    assert.equal((await runTask(f.args)).status, 'published');
+    assert.equal(f.counts.agents, 1); assert.equal(f.counts.verifies, 2); assert.equal(f.counts.commits, 1);
+    assert.equal(f.args.state.validation.verifyHash, hash(f.args.config.verify));
+    assert.equal(f.args.state.verification.length, 2);
+  });
+}
+test('new failing acceptance prevents retrying publication with old proof', async () => {
+  const f = fixture(); f.failPush(); await assert.rejects(runTask(f.args), /push disconnected/);
+  f.args.config.verify.push(['node', 'new-test.mjs']); f.failValidation();
+  await assert.rejects(runTask(f.args), /Verification failed/);
+  assert.equal(f.counts.pushes, 1); assert.equal(f.counts.prs, 0); assert.equal(f.counts.agents, 1); assert.equal(f.args.state.validation, undefined);
+});
+test('hook-modified committed tree must pass a second independent verification', async () => {
+  const f = fixture(); f.hook('hook-tree');
+  assert.equal((await runTask(f.args)).status, 'published');
+  assert.equal(f.counts.verifies, 2); assert.equal(f.args.state.validation.tree, 'hook-tree');
+});
+test('hook-created failing tree is not pushed or published', async () => {
+  const f = fixture(); f.hook('unsafe');
+  await assert.rejects(runTask(f.args), /Verification failed/);
+  assert.equal(f.counts.verifies, 2); assert.equal(f.counts.pushes, 0); assert.equal(f.counts.prs, 0);
+});
+test('same HEAD with a changed candidate tree cannot reuse cached validation', async () => {
+  const f = fixture(); f.failCommit(); await assert.rejects(runTask(f.args), /interrupted/);
+  f.changeTree('new-candidate');
+  assert.equal((await runTask(f.args)).status, 'published');
+  assert.equal(f.counts.verifies, 2); assert.equal(f.counts.agents, 1); assert.equal(f.args.state.validation.tree, 'new-candidate');
+});
+test('legacy validated/no-change checkpoint accepts later feedback instead of deadlocking', async () => {
+  const f = fixture(); f.noChanges(); await runTask(f.args);
+  f.args.state.phase = 'validated'; delete f.args.state.validation;
+  f.snapshot.comments.push({ id: 44, user: { login: 'reviewer' }, body: 'Clarification for the old checkpoint' });
+  f.noChanges(false);
+  assert.equal((await runTask(f.args)).status, 'published'); assert.equal(f.counts.agents, 2);
+});
+test('legacy remote report lacking a validation binding is rechecked without a model turn', async () => {
+  const f = fixture(); await runTask(f.args);
+  f.snapshot.pr.body = f.snapshot.pr.body.replace('"v":2', '"v":1').replace(/"validation":\{[^}]+\},/, '');
+  f.args.state = { key: taskKey(config, 1), branch: branchName(config, 1) };
+  assert.equal((await runTask(f.args)).status, 'published');
+  assert.equal(f.counts.agents, 1); assert.equal(f.counts.verifies, 2); assert.match(f.args.state.summary, /Tests passed/);
+});
+test('verification that changes candidate content cannot certify either tree', async () => {
+  const f = fixture(), verify = f.args.repo.verify;
+  f.args.repo.verify = async commands => { const result = await verify(commands); f.changeTree('changed-by-test'); return result; };
+  await assert.rejects(runTask(f.args), /Verification changed/);
+  assert.equal(f.args.state.validation, undefined); assert.equal(f.counts.commits, 0); assert.equal(f.counts.pushes, 0);
 });
 test('Git uses API credential in child environment only and disables tracing', () => {
   const parent = { PATH: 'path', GIT_TRACE_CURL: '1', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.version', GIT_CONFIG_VALUE_0: 'HTTP/1.1' };

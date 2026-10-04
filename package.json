@@ -1,11 +1,26 @@
 {
   "name": "dsh-github-harness",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "A minimal single-agent GitHub task loop for DeepSeek Harness",
+  "description": "Single-agent GitHub Issue to PR harness with a DSH desktop tool bundle",
   "engines": { "node": ">=22" },
   "bin": { "dsh-github-harness": "./src/cli.mjs" },
-  "exports": { "./plugin": "./src/plugin.mjs" },
+  "exports": {
+    ".": "./src/desktop-plugin.mjs",
+    "./plugin": "./src/plugin.mjs",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": ["src", "test", "scripts/run.ps1", "harness.cmd", "harness.config.json", "cordis.patch.yml", "README.md", "docs"],
+  "dsh": { "manifestVersion": 1, "bundle": { "patch": "./cordis.patch.yml" } },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-sandbox": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-sandbox-policy": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-user-approval": "0.2.0-rc.2"
+  },
+  "peerDependenciesMeta": { "@deepseek-ai/dsh-user-approval": { "optional": true } },
   "scripts": { "test": "node --test test/*.test.mjs" }
 }

@@ -1,0 +1,3 @@
+- insert:
+    - id: github-harness
+      name: dsh-github-harness

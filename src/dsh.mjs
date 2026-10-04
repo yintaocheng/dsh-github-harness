@@ -13,7 +13,16 @@ export function parseRun(text) {
   return { sessionId: session.sessionId, text: final.text };
 }
 
-export async function runDsh({ config, state, prompt, root, cwd, onSpawn, persist }) {
+export function sanitizedDshEnv(parent = process.env) {
+  const env = { ...parent };
+  // Windows environment names are case-insensitive; ordinary objects on all platforms are not.
+  for (const key of Object.keys(env)) {
+    if (['GH_TOKEN', 'GITHUB_TOKEN'].includes(key.toUpperCase())) delete env[key];
+  }
+  return env;
+}
+
+export async function runDsh({ config, state, prompt, root, cwd, onSpawn, persist, signal }) {
   const receipt = join(root, `${state.key}.session.json`);
   const previous = load(receipt);
   if (previous?.taskKey === state.key && previous.sessionId) state.sessionId = previous.sessionId;
@@ -24,10 +33,9 @@ export async function runDsh({ config, state, prompt, root, cwd, onSpawn, persis
   const input = join(root, `${state.key}.prompt.txt`);
   writeFileSync(input, prompt, { mode: 0o600 });
   const args = [...config.dsh.command, ...(config.dsh.patch ? ['--patch', config.dsh.patch] : []), '--patch', patch, '--json', ...(state.sessionId ? ['--session-id', state.sessionId] : []), '-'];
-  const env = { ...process.env };
   // The trusted bridge owns outbound GitHub access. Do not hand its token to the model process.
-  delete env.GH_TOKEN; delete env.GITHUB_TOKEN;
-  const result = await command(args, { cwd, env, input, onSpawn, logDir: join(root, 'logs') });
+  const env = sanitizedDshEnv();
+  const result = await command(args, { cwd, env, input, onSpawn, signal, logDir: join(root, 'logs') });
   const recovered = load(receipt);
   if (recovered?.taskKey === state.key) state.sessionId = recovered.sessionId;
   state.dshLogs = { stdout: result.out, stderr: result.err };
