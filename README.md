@@ -1,90 +1,105 @@
 # dsh-github-harness
 
-**把目标仓库中的一个 GitHub Issue 交给 DSH：修改代码、运行验收、提交一个供人审查的 PR。**
+**让 GitHub Issue 成为 DSH 的任务入口，让 PR 成为代码交付入口。**
 
-这是面向 **DeepSeek Harness 0.2.0-rc.2** 的社区插件，使用官方 bundle / Host 工具接口，不是 DeepSeek 官方出品。插件安装位置与目标仓库相互独立：不必 Fork 本插件，也不必把插件源码复制进自己的项目。
+在 Issue 中写下需求，DSH 负责修改代码；harness 运行你指定的验收命令，成功后提交 PR。把修改意见留在 Issue 或 PR，再次运行即可继续原任务，无需重新整理上下文。
 
 ```text
-项目仓库中的 Issue → 单 agent → 修改与独立验收 → PR + 检查点
-        ↑                                      │
-        └────────── 新反馈，续跑同一任务 ─────────┘
+Issue → DSH 实现 → 独立验收 → Pull Request
+  ↑                              │
+  └────── 修改意见 / CI 反馈 ──────┘
 ```
 
-**一次 `run` 绑定一个目标仓库中的一个任务。** 同一插件可以服务多个项目，每个项目可以有多项任务；任务身份不绑定执行者名称。当前手动启动、单执行者运行，**不自动合并**。
+## 功能
 
-## 在官方插件管理器安装
+- **按任务管理上下文**：每个 Issue 使用自己的分支、DSH 会话和 PR。
+- **持续处理反馈**：读取 Issue 评论、PR 审查和 CI 结果，续跑同一任务。
+- **先验证，再发布**：验收失败不推送；没有代码变更时不创建空 PR。
+- **支持多个项目**：插件只需安装一次，调用时选择目标仓库；同一 checkout 中的任务串行执行。
+- **保留人工审查**：稳定版不自动批准或合并 PR。
 
-桌面侧栏 **Plugins → Add plugin**，输入固定版本：
+## 安装
+
+需要 **DeepSeek Harness 0.2.0-rc.2、Node.js 22+ 和 Git**。
+
+在 DSH 的 **Plugins → Add plugin** 中输入：
 
 ```text
 github:yintaocheng/dsh-github-harness#v0.3.0
 ```
 
-检查后选择 **Install → Enable now**，按宿主提示重启。安装与启用是两步；不要修改正在运行的 desktop profile。
+安装后启用插件，按宿主提示完成重启。工具名称为 `github_harness`。[CLI 安装与详细步骤 →](docs/desktop.md)
 
-也可使用桌面自带的官方 CLI。先完全退出桌面，替换实际安装路径：
+## 快速开始
+
+### 1. 准备目标项目
+
+打开一个已有基线提交的 Git 仓库，确保 HTTPS `origin` 指向你有写权限的 GitHub 仓库。插件源码不需要放进这个项目。
+
+Windows 可通过 Git Credential Manager 登录：
 
 ```powershell
-$dsh = 'C:\Program Files\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd'
-& $dsh plugin --profile desktop add 'github:yintaocheng/dsh-github-harness#v0.3.0' --ignore-scripts
+git credential-manager github login --browser
 ```
 
-**npm 发布暂缓。** 当前不要用 `dsh-github-harness@0.3.0` 从 npm 或镜像安装；包元数据已准备，不代表 registry 上已发布。当前可用来源是上述 GitHub 固定标签。详见[分发说明](docs/distribution.md)与[桌面安装及权限](docs/desktop.md)。
+其他凭据方式见[认证配置](docs/setup.md#github-认证)。同时确认 DSH 的 [headless 模型](docs/setup.md#检查-dsh-模型)可用。
 
-## 配置自己的目标仓库
+### 2. 配置验收
 
-需要 Node.js 22+、Git、可用的 DSH headless 模型，以及有目标仓库写权限的 GitHub 身份。
+在目标仓库根目录新建 `harness.local.json`：
 
-1. 打开自己的项目或有权限的 Fork，本地 HTTPS `origin` 必须与配置一致。
-2. 在**目标仓库根目录**创建配置，填写仓库、实际 GitHub 操作身份、DSH 命令和该项目的验收命令，参见[配置示例](docs/setup.md#配置示例)。
-3. 忽略本地配置、`.harness/` 与 `.reference/`。**不要把 token 放进配置或 Issue。**
-4. 准备 [GitHub 凭据](docs/setup.md#github-认证)，单独检查 [headless 模型](docs/setup.md#检查-dsh-模型)。
+```json
+{
+  "owner": "YOUR_ACCOUNT_OR_ORG",
+  "repo": "YOUR_PROJECT",
+  "base": "main",
+  "agent": { "id": "solo", "expectedLogin": "YOUR_GITHUB_LOGIN" },
+  "dsh": { "command": ["dsh", "headless"] },
+  "verify": [["node", "--test"]]
+}
+```
 
-会话工作区包含 `my-project` 子目录时，先调用：
+替换仓库、登录账户和验收命令。Windows 若无法从 PATH 找到 `dsh`，将命令首项替换为桌面自带 `dsh.cmd` 的绝对路径。[完整配置说明 →](docs/setup.md#配置示例)
+
+将以下条目加入目标项目的忽略规则，不要提交凭据或本地运行状态：
+
+```gitignore
+harness.local.json
+.harness/
+.reference/
+```
+
+### 3. 运行一个 Issue
+
+先在 GitHub 创建 Issue，写清需求、范围和验收条件。然后在 DSH 中说：
+
+> 用 github_harness 检查 my-project 的配置，然后处理该仓库的 Issue #42。
+
+也可以直接调用工具：
 
 ```json
 {"action":"doctor","workdir":"my-project"}
+{"action":"run","issue":42,"workdir":"my-project"}
+{"action":"status","issue":42,"workdir":"my-project"}
 ```
 
-确认身份和仓库后处理该仓库的 Issue：
+`workdir` 可以是绝对路径，也可以相对当前 DSH 会话工作区。PR 创建后，在 Issue 或 PR 留下反馈，再次对同一目录和 Issue 执行 `run`。
 
-```json
-{"action":"run","issue":1,"workdir":"my-project"}
-```
+## 使用须知
 
-用 `action: "status"` 查询同一任务。以上是 `github_harness` 工具参数；也可直接用自然语言要求 DSH 调用。
+- `doctor` 检查身份、仓库读取能力和 DSH 命令；它不会替你创建仓库或验证所有写权限。
+- GitHub 配置必须匹配目标 checkout；不要通过复制任务缓存切换仓库或账户。
+- 工具需要宿主授权的文件、进程和网络访问。仅用于可信仓库：agent、测试和 Git hooks 都可能执行本地代码。
 
-`doctor` 检查登录身份、仓库、Issues / PR / Commit statuses / Checks 的实际读取能力及 DSH 命令。**读取成功不证明所有 token scope 或写权限已获验证。**
+## 文档与示例
 
-## 任务如何继续？
+- [安装、模型与凭据配置](docs/setup.md)
+- [命令、反馈续跑与中断恢复](docs/operations.md)
+- [独立演示项目](https://github.com/yintaocheng/dsh-github-harness-demo)
+- [开发接口](docs/interfaces.md) · [项目与任务模型](docs/project-model.md)
 
-添加 Issue / PR 反馈后，对同一目标仓库、同一 Issue 再次 `run`：
+## License
 
-- 复用原任务、分支、PR 和 DSH 任务会话；更换执行者名称不创建另一业务任务。
-- 反馈、代码树和验收配置不变时返回 `unchanged`。
-- 首轮没有可审查修改时返回 `waiting`，不创建空 PR。
-- 只修改验收命令时重新验证，不额外调用模型。
-- 旧版本任务保留原工件别名；存在多份冲突历史时拒绝猜测，要求人工核对。
+[MIT](LICENSE)
 
-模型会话与可信发布执行器分工：agent 修改代码，harness 独立验收后提交和发布，不让模型自行绕过验收推送。
-
-## 示例、开发与边界
-
-- **[独立演示仓库](https://github.com/yintaocheng/dsh-github-harness-demo)**：真实目标项目、具体任务、修改文件、提交与验收证据；不是插件安装源。
-- [配置与源码 CLI](docs/setup.md)
-- [命令、恢复与实现边界](docs/operations.md)
-- [项目、任务、运行与未来参与者](docs/project-model.md)
-- [分发与发布状态](docs/distribution.md)
-- [DSH 接口依据](docs/interfaces.md)
-
-插件开发回归：`node --test test/*.test.mjs`。具体演示过程与结果放在演示仓库，不与插件测试混算。
-
-同一仓库未来可以有多个 agent 参与，但本版不调度多个 agent、不授予 GitHub 权限、不投票、不自动 approve 或 merge。未来 maintainer 简单多数策略的约束见[项目模型](docs/project-model.md#多-agent-与-maintainer兼容方向不是本版功能)。
-
-只在可信仓库中运行。测试、Git hooks 与 agent 都会执行本地代码，这不是恶意代码隔离服务。
-
-## 许可证
-
-[MIT](LICENSE)，Copyright (c) 2026 yintaocheng。GitHub topic：[`dsh-plugin`](https://github.com/topics/dsh-plugin)。
-
-本仓库维护通用插件；演示项目的配置与任务在[独立仓库](https://github.com/yintaocheng/dsh-github-harness-demo)。
+本项目是 DeepSeek Harness 社区插件。
