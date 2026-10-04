@@ -91,7 +91,7 @@ node src/cli.mjs status 1
 4. 在 Issue 或 PR 加一条额外验收条件，再 `run ISSUE`；要求同 session / 同 PR、新 SHA、新测试。
 5. 反馈稳定后再跑，要求 `unchanged`；离线故障注入覆盖“PR 已创建但响应丢失”和“检查点写入失败”。
 
-见 [接口依据](docs/interfaces.md) 和交付时补充的验证记录。模型自然语言“测试通过”不是证明，桥接器独立执行 `verify` 并记录退出码；GitHub CI 单独显示，不冒充已经完成。
+见 [接口依据](docs/interfaces.md) 和 [实际验证记录](docs/validation.md)（含真实 Issue / PR / CI、反馈续跑、网络中断恢复与缓存重建证据）。模型自然语言“测试通过”不是证明，桥接器独立执行 `verify` 并记录退出码；GitHub CI 单独显示，不冒充已经完成。
 
 ## 当前限制
 
