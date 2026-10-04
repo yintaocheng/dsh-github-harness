@@ -64,7 +64,10 @@ git credential-manager github login --browser
 
 ## 已经跑通了什么？
 
-[Issue #1](https://github.com/yintaocheng/dsh-github-harness/issues/1) → [PR #2](https://github.com/yintaocheng/dsh-github-harness/pull/2) 已真实完成首次修改、反馈续跑和结果回写，并验证了重复启动与发布中断恢复。详细证据见 [验证记录](docs/validation.md)。
+- [Issue #1 → PR #2](https://github.com/yintaocheng/dsh-github-harness/pull/2)：修改、反馈续跑、去重及中断恢复。
+- [Issue #3 → PR #4](https://github.com/yintaocheng/dsh-github-harness/pull/4)：在 DSH 中运行本页的短命令，生成文档回归测试；任务分支 19 项测试和 GitHub CI 通过。
+
+两次都是实际模型执行，PR 保留供审查。详细证据见 [验证记录](docs/validation.md)。
 
 - [安装、认证与模型配置](docs/setup.md)
 - [命令、恢复与实现边界](docs/operations.md)

@@ -1,6 +1,6 @@
 # 实际验证记录
 
-验证日期：2026-10-04，Asia/Shanghai。最后一次 GitHub 事实采集：16:23。不是仅用 mock 声称端到端成功。
+验证日期：2026-10-04，Asia/Shanghai。首轮 GitHub 事实采集：16:23；后续 README 公开版验证见文末。不是仅用 mock 声称端到端成功。
 
 ## 环境、身份与交付位置
 
@@ -39,7 +39,7 @@
 
 ## 离线自动测试：与真实验证分开
 
-main 的桥接器测试为 **14/14**。PR 分支另外有 7 组解析任务测试，共 **21/21**。覆盖：
+首轮交付时，main 的桥接器测试为 **14/14**。PR #2 分支另外有 7 组解析任务测试，共 **21/21**。覆盖：
 
 - 首次发布 / 同反馈 no-op / 同 Issue、PR review、CI 反馈续跑。
 - PR 创建成功但响应丢失、检查点失败后重试、发布期间到达新反馈不被吞掉。
@@ -71,3 +71,17 @@ node src/cli.mjs --config harness.local.json status 1
 - CI feedback 的成功检查在真实环境读取并消费；失败 CI / review-state 处理目前由离线用例覆盖。未下载 job logs。
 - 验证失败时目前停止发布并保留本地诊断，不自动发布新的失败评论。只读 status 可查看当前任务；需要人工解决后重跑。
 - 不含 webhook 自动触发、调度平台、多 agent 协调、投票或自动合并。工作目录锁只针对本机单 checkout；不是分布式锁。凭据环境隔离不是恶意仓库的完整防护。
+
+## 后续验证：README 公开版与当前 DSH 实测
+
+同日按用户要求重写首页，并使用当前 DSH 会话进行第二个真实任务验证：
+
+- [README 改进提交 `9c4ba7d`](https://github.com/yintaocheng/dsh-github-harness/commit/9c4ba7db651988a18016bc48bc4f735e53c3d156)：首页只保留用途、三步启动和结果入口；详细内容移入 [安装配置](setup.md) 与 [运行恢复](operations.md)。增加 [Windows 短入口](../harness.cmd)。
+- 核验时仓库已经为 `public`，因此没有重复修改可见性。无认证 API 返回 HTTP 200 / `visibility: public`；未登录浏览器成功读取 GitHub 渲染后的新版 README。
+- 预检扫描了当时的 30 个历史 blob、20 个工作区文件及 4 条 Issue/PR 内容，未发现常见凭据模式或当前 GitHub token。运行目录和本地配置没有进入 Git 历史。这是基本检查，不是完整秘密扫描保证；没有重写旧历史，其中仍有早期开发机器路径。
+- 当前 DSH 会话执行 `harness.cmd run 3`，启动独立 headless session `session-56afa985-a663-43ce-b1a8-9d37d0340373`，处理 [Issue #3](https://github.com/yintaocheng/dsh-github-harness/issues/3)。
+- agent 只新增文档回归测试，生成 [PR #4](https://github.com/yintaocheng/dsh-github-harness/pull/4)，head 为 [`93f6a4a`](https://github.com/yintaocheng/dsh-github-harness/commit/93f6a4a0c23ecdcf6b9f4186a78495c2f6cf84a4)，并更新 [Issue 检查点](https://github.com/yintaocheng/dsh-github-harness/issues/3#issuecomment-5978286299)。PR 未合并。
+- 该任务分支 **19/19 本地测试通过**；准确 head 对应的 [PR CI](https://github.com/yintaocheng/dsh-github-harness/actions/runs/37190424466/job/111401249404) 和 [push CI](https://github.com/yintaocheng/dsh-github-harness/actions/runs/37190421007/job/111401238917) 均 `completed / success`。
+- 无凭据 `help` / `status` 可用，`doctor` 实际核验为 `yintaocheng`。收尾负向测试发现短入口最初吞掉失败退出码，已修复，并新增 [Windows 启动器回归测试](../test/launcher.test.mjs)：检查带空格路径、配置回退 / 本地覆盖以及失败退出码。修复后的 main 在 Windows **15/15 通过**；此 Windows 专项测试在 Linux 跳过。
+
+这里的“在 DSH 中测试”指从当前 DSH 会话调用上述命令，实际启动独立 DSH agent。没有新增 GUI 按钮，也没有另开 Web 服务。
