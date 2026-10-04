@@ -43,7 +43,10 @@ export async function runTask({ config, issue, state, github, repo, agent, persi
   const inputFacts = facts(snapshot, config, markerFor(state.key));
   const inputHash = hash(inputFacts);
   if (state.phase === 'done' && state.inputHash === inputHash && state.head === await repo.head() && snapshot.pr?.head.sha === state.head) {
-    await github.checkpoint(issue, markerFor(state.key), report({ ...state, prUrl: snapshot.pr.html_url, verification: state.verification || [], summary: state.summary || 'Recovered existing PR; see PR for prior report.' }, config, issue));
+    const checkpoint = snapshot.comments.find(x => x.user?.login?.toLowerCase() === config.agent.expectedLogin.toLowerCase() && x.body?.startsWith(markerFor(state.key)));
+    // Do not replace a durable verification report with an incomplete local cache.
+    if (!checkpoint) await github.checkpoint(issue, markerFor(state.key), `${snapshot.pr.body}\nPR: ${snapshot.pr.html_url}\n`);
+    state.prUrl = snapshot.pr.html_url; state.prNumber = snapshot.pr.number; persist();
     return { status: 'unchanged', pr: snapshot.pr.html_url, sessionId: state.sessionId };
   }
   if (!['validated', 'publishing'].includes(state.phase)) {

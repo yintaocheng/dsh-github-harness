@@ -6,7 +6,7 @@
 
 - Node.js 22+、Git、DSH `0.2.0-rc.2`（本机已核验 `headless --json` / `--session-id`）。零 npm 依赖，无需 `npm install`。
 - DSH headless 需要可用模型路由 / 凭据。桌面可用不等于默认 headless 路由可用；可通过 `dsh.patch` 使用自己的 Cordis overlay。项目从不复制或打印模型密钥。
-- GitHub 凭据通过 `GH_TOKEN` / `GITHUB_TOKEN` 或 Windows Credential Manager 提供。创建私有个人仓库需相应权限；现有仓库需 Contents、Issues、Pull requests 读写，以及 Checks / Actions 读取权限。推送 CI 文件还需要 GitHub 所要求的 workflow 权限。Git push 本身使用 Git 凭据管理器或你配置的 Git 认证。
+- GitHub 凭据通过 `GH_TOKEN` / `GITHUB_TOKEN` 或 Windows Credential Manager 提供。创建私有个人仓库需相应权限；现有仓库需 Contents、Issues、Pull requests 读写，以及 Checks / Actions 读取权限。推送 CI 文件还需要 GitHub 所要求的 workflow 权限。桥接器强制 Git fetch/push 使用与 `/user` 核验相同的 token，通过仅存在于 Git 子进程的配置环境传递，不写 URL / argv / Git 配置文件，并关闭 Git trace。首版只支持 HTTPS origin，拒绝可能使用另一身份的 SSH origin。
 - 每次写入前核验 `/user`、仓库完整名及 push 权限。`owner` 是仓库所有者，`agent.expectedLogin` 是实际操作身份；**二者可以不同**，但 `bootstrap` 只支持为当前身份创建个人仓库。
 - 只在可信代码仓库运行。验证命令来自操作者配置，不从 Issue 执行 shell。GitHub 文本标记为不可信数据。桥接器移除传给 DSH 子进程的 GitHub token 环境变量，但这不是隔离恶意代码的完整安全边界：同一 OS 用户仍可能访问凭据管理器，测试本身也是可执行代码。
 
@@ -47,6 +47,8 @@ git credential-manager github login --username yintaocheng --browser
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/run.ps1 --config harness.local.json doctor
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/run.ps1 --config harness.local.json bootstrap
 ```
+
+如果本机 Git 直连 GitHub 超时，但系统已配置代理，可在当前终端显式设置 `HTTPS_PROXY` 为已有代理地址后重试。本次验证机器的现有系统代理是 `http://127.0.0.1:7897`；使用 `$env:HTTPS_PROXY='http://127.0.0.1:7897'` 后恢复成功。其他机器不要照搬端口；不需要改全局 Git 设置，更不要关闭 TLS 校验。
 
 `-ExecutionPolicy Bypass` 只作用于当前 PowerShell 进程，不修改系统执行策略。`doctor` 是只读校验。`bootstrap` 创建**私有**仓库并设置 origin，存在则核验后复用，不删除 / 重建远端。基线代码由操作者检查后提交并推送到 `main`（本交付已完成时无需再做）。
 

@@ -76,7 +76,7 @@ export async function main(argv = process.argv.slice(2)) {
     const state = load(path) || { version: 1, key, branch: branchName(config, issue) };
     if (state.key !== key || state.branch !== branchName(config, issue)) throw Error('Local task identity mismatch');
     const persist = () => save(path, state);
-    const repo = new Repo(config, cwd, pid => lock.child(pid));
+    const repo = new Repo(config, cwd, pid => lock.child(pid), github.token);
     const agent = prompt => runDsh({ config, state, prompt, root, cwd, onSpawn: pid => lock.child(pid), persist });
     const result = await runTask({ config, issue, state, github, repo, agent, persist });
     console.log(JSON.stringify(result, null, 2));

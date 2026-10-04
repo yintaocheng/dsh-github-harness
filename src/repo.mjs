@@ -5,12 +5,26 @@ import { command, git } from './process.mjs';
 export function remoteMatches(url, config) {
   return [
     `https://github.com/${config.owner}/${config.repo}`, `https://github.com/${config.owner}/${config.repo}.git`,
-    `git@github.com:${config.owner}/${config.repo}.git`, `git@github.com:${config.owner}/${config.repo}`,
   ].some(x => x.toLowerCase() === url.toLowerCase());
 }
+// Bind Git HTTPS to exactly the token already verified by GET /user. No token in
+// argv, URL, Git config files or logs. The environment exists only for Git children.
+export function gitAuthEnv(token, parent = process.env) {
+  if (!token) throw Error('Verified GitHub credential required for Git transport');
+  const env = { ...parent, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
+  for (const key of Object.keys(env)) if (/^GIT_TRACE|^GIT_CURL_VERBOSE$|^GIT_CONFIG_PARAMETERS$/.test(key)) delete env[key];
+  let count = Number(env.GIT_CONFIG_COUNT || 0);
+  if (!Number.isSafeInteger(count) || count < 0 || count > 100) throw Error('Invalid inherited Git configuration count');
+  for (const [key, value] of [
+    ['credential.helper', ''], ['http.extraHeader', ''],
+    ['http.https://github.com/.extraHeader', `Authorization: Basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`],
+  ]) { env[`GIT_CONFIG_KEY_${count}`] = key; env[`GIT_CONFIG_VALUE_${count++}`] = value; }
+  env.GIT_CONFIG_COUNT = String(count);
+  return env;
+}
 export class Repo {
-  constructor(config, cwd, onSpawn) { this.config = config; this.cwd = cwd; this.options = { cwd, onSpawn }; }
-  git(args) { return git(args, this.options); }
+  constructor(config, cwd, onSpawn, token) { this.config = config; this.cwd = cwd; this.options = { cwd, onSpawn }; this.token = token; }
+  git(args) { return git(args, ['fetch', 'push'].includes(args[0]) ? { ...this.options, env: gitAuthEnv(this.token) } : this.options); }
   async identity() {
     const root = await this.git(['rev-parse', '--show-toplevel']);
     if (realpathSync(root).toLowerCase() !== realpathSync(this.cwd).toLowerCase()) throw Error('Run from the repository root, not a parent or child directory');
