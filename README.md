@@ -72,6 +72,20 @@ node src/cli.mjs status 1
 
 本地操作身份依赖当前环境，而不是 agent 名字。后续可新增不同 `agent.id` 和 `expectedLogin`，但首版工作目录锁只允许一个执行者；**不能据此声称已实现多 agent 并行**。
 
+## 手动 Issue 引用解析
+
+独立纯函数 `parseIssueRef(text)` 可解析 `owner/repo#123` 或规范的 `https://github.com/owner/repo/issues/123`，去除首尾空白并保留 owner/repo 拼写。非法输入会抛出异常；Issue 编号必须是正的安全整数。URL 仅接受上述精确格式，不接受 HTTP、其他主机、凭据、端口、查询字符串、片段、PR 路径或额外路径段（包括尾部 `/`）。不接受引用格式以外的命令 / shell 标点，且尚未接入 CLI，现有命令行为不变。
+
+```js
+import { parseIssueRef } from './src/issue-ref.mjs';
+
+parseIssueRef('  Owner/my-repo#123  ');
+// => { owner: 'Owner', repo: 'my-repo', issue: 123 }
+
+parseIssueRef('https://github.com/DeepSeek-AI/deepseek-harness/issues/123');
+// => { owner: 'DeepSeek-AI', repo: 'deepseek-harness', issue: 123 }
+```
+
 ## 去重与恢复
 
 - 稳定分支：`harness/<agent.id>/issue-<number>`。按 head 查询所有状态的 PR；已有 open PR 更新，closed / merged PR 停止，绝不偷偷重开。
