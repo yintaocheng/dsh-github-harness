@@ -44,7 +44,19 @@
 
 发布前还遇到一次原生 Windows 原子更新锁文件的 `rename EPERM`，发生在本地提交之后、实际推送之前。限定目录诊断得到 `NOT_THIS_CLASS`，扫描 287 个目录，无不可读项、无权限修改或回滚：不能把正常的保护条目当作原因删掉。为常见的短暂原生替换错误补了最多 310ms 的同操作重试；永久错误仍失败，不删除目标、不改权限。另加 [5 项状态回归](../test/state.test.mjs)，并重新执行完整发布验收。没有将它包装成沙箱修复，也没有提权。
 
-本节记录的是已执行的本地 tarball 安装与 Host 行为。固定 GitHub tag 的网络安装在发布后另行核验。没有把它声称为当前桌面 GUI 已被自动安装，也没有重新跑一次模型 Issue→PR 来冒充桌面完整业务验证。下方两次真实模型任务是先前阶段证据，原 PR 仍保留审查，不自动合并。
+### 已发布标签的网络安装
+
+最终固定标签 [v0.2.0](https://github.com/yintaocheng/dsh-github-harness/tree/v0.2.0) 指向 [`337146e281c981135d4d60ceac6a5648dfbefc0b`](https://github.com/yintaocheng/dsh-github-harness/commit/337146e281c981135d4d60ceac6a5648dfbefc0b)。配置中的标准验收命令在该树上实际得到 **86 pass / 0 fail / 0 skipped**，耗时约 73.7 秒；该精确 SHA 的 [GitHub CI](https://github.com/yintaocheng/dsh-github-harness/actions/runs/37197313293/job/111421739135) 为 `completed / success`。
+
+移除本地 tarball 安装后，用 README 的 `github:yintaocheng/dsh-github-harness#v0.2.0` 在同一独立测试 profile 重新安装。pnpm 实际从 GitHub codeload 下载了上述**准确提交**，退出 0，profile 依赖与启用列表均记录该 bundle。再次完整启动后：
+
+- `read-only`：工具注册成功，Host 调用被拒绝；
+- `danger-full-access`：已安装包的 `status` 读取正确仓库的真实任务，阶段 `done`；
+- 已安装包的 `doctor`：`operator=yintaocheng`、`githubReads=ok`、`dshHelpExit=0`，写权限依然正确保留 `unverified`，没有用 GET 成功假装验证写入。
+
+远程 Git 包安装带有 pnpm 的 “has to be built but build scripts were ignored” 和 peer 提示。本包是可直接运行的 ESM，没有 `prepare/postinstall`；此轮明确使用 `--ignore-scripts`，真实 Loader 和工具调用已经通过，**无需为了这些提示放行构建脚本**。这不是零告警安装的宣称。
+
+证据文档的后续补充只更新 main，已发布标签保持不动。没有把隔离 profile 测试声称为当前桌面 GUI 已自动安装，也没有新跑一次模型 Issue→PR 冒充桌面完整业务验证。下方两次真实模型任务仍是先前阶段证据，原 PR 保留审查，不自动合并。
 
 ---
 

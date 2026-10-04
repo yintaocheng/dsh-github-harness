@@ -66,7 +66,7 @@ Host 插件本身运行在工作区文件沙箱之外。因此本工具沿用 DS
 
 ```powershell
 $dsh = 'C:\Program Files\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd'
-& $dsh plugin --profile desktop add 'github:yintaocheng/dsh-github-harness#v0.2.0'
+& $dsh plugin --profile desktop add 'github:yintaocheng/dsh-github-harness#v0.2.0' --ignore-scripts
 ```
 
 安装后重新打开桌面。查看与移除同样使用此 CLI；修改前仍需完全退出桌面：
@@ -81,6 +81,8 @@ $dsh = 'C:\Program Files\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd'
 ## 本次验证的范围
 
 已用桌面自带 CLI 在全新 `DSH_HOME` 中安装真实 tarball，确认 bundle 被启用，完整 Loader 的 `appReady` 后能取得 `github_harness`；受限模式下调用被拒，授权模式下 `status` 读取了目标仓库的真实任务缓存，而不是安装目录。单元/集成测试还覆盖工作目录、不读取凭据的 status、取消进程树与释放锁。
+
+发布后还从真正的 GitHub `v0.2.0` 标签重新安装，下载提交为 `337146e281c981135d4d60ceac6a5648dfbefc0b`；已安装工具再次通过权限拒绝、真实 `status` 和 `doctor`（身份、四类读取、DSH help）的检查。本地 tarball 阶段另验过移除后冷启动，工具不再注册。pnpm 对 Git 包给出忽略 build 和缺本地 peer 的提示，但此包直接执行 ESM，实测不需要放行构建脚本。
 
 这验证了本机桌面携带 runtime 的安装和 Host 工具契约，**不等于已经在用户当前桌面 profile 点击安装并验完 UI**。本次没有退出、重启或修改正在使用的 desktop/headless profile，也没有把新的模型调用冒充成当前桌面对话直接执行。完整证据与发布版本见[验证记录](validation.md)。
 
