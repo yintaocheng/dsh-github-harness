@@ -79,7 +79,7 @@ git credential-manager github login --browser
 
 桌面版安装后使用 `github_harness`；也可以继续让 DSH 在目标仓库运行上述 CLI。当前提供 **CLI + 桌面 Host 工具**，没有额外的任务管理页面。执行时仍会启动独立 headless 会话，不是让当前对话直接代写成果。
 
-本次修复已通过 **81 项 Windows 测试**，包括真实 Git hook、大文件基线和子进程取消；安装包已在桌面携带 runtime 的隔离 profile 验证注册、权限拒绝和实际 `status` 调用。未擅自修改正在使用的桌面 profile。
+本次修复已通过 **86 项 Windows 测试**，包括真实 Git hook、大文件基线和子进程取消；安装包已在桌面携带 runtime 的隔离 profile 验证注册、权限拒绝和实际 `status` 调用。未擅自修改正在使用的桌面 profile。
 
 只在你信任的代码仓库中运行。测试和 agent 都会执行本地代码；这不是恶意代码隔离服务。
 

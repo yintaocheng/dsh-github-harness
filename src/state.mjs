@@ -3,11 +3,22 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 export function load(path) { return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null; }
+export function atomicReplace(source, target, { rename = renameSync, platform = process.platform, pause = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
+  // Windows file watchers/AV can briefly prevent replacing an existing file.
+  // Retry the SAME atomic operation for at most 310ms; never delete the destination or alter permissions.
+  for (let attempt = 0; ; attempt++) {
+    try { rename(source, target); return; }
+    catch (error) {
+      if (platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 5) throw error;
+      pause(10 * 2 ** attempt);
+    }
+  }
+}
 export function save(path, data) {
   mkdirSync(dirname(path), { recursive: true });
   const temp = `${path}.${randomUUID()}.tmp`;
   writeFileSync(temp, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
-  renameSync(temp, path);
+  atomicReplace(temp, path);
 }
 export function acquire(root) {
   mkdirSync(root, { recursive: true });
