@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runTask, taskKey, branchName, facts, hash, markerFor } from '../src/core.mjs';
 import { parseRun } from '../src/dsh.mjs';
-import { remoteMatches } from '../src/repo.mjs';
+import { remoteMatches, gitAuthEnv } from '../src/repo.mjs';
 import { validateConfig } from '../src/cli.mjs';
 import { GitHub } from '../src/github.mjs';
 
@@ -76,6 +76,26 @@ test('lost local state recovers existing session and task from GitHub metadata',
   f.args.state = { key: taskKey(config, 1), branch: branchName(config, 1) };
   assert.equal((await runTask(f.args)).status, 'unchanged');
   assert.equal(f.args.state.sessionId, 'session-one'); assert.equal(f.counts.agents, 1);
+  assert.equal(f.counts.checkpoints, 1); // Recovery must not overwrite the original report.
+  assert.match(f.snapshot.comments[0].body, /exit 0/);
+});
+test('missing Issue checkpoint is repaired from PR without losing verification', async () => {
+  const f = fixture(); await runTask(f.args); f.snapshot.comments = [];
+  f.args.state = { key: taskKey(config, 1), branch: branchName(config, 1) };
+  assert.equal((await runTask(f.args)).status, 'unchanged');
+  assert.match(f.snapshot.comments[0].body, /exit 0/);
+  assert.equal(f.counts.agents, 1);
+});
+test('Git uses API credential in child environment only and disables tracing', () => {
+  const parent = { PATH: 'path', GIT_TRACE_CURL: '1', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.version', GIT_CONFIG_VALUE_0: 'HTTP/1.1' };
+  const env = gitAuthEnv('test-only', parent);
+  assert.equal(env.GIT_CONFIG_COUNT, '4');
+  assert.equal(env.GIT_CONFIG_KEY_3, 'http.https://github.com/.extraHeader');
+  assert.equal(env.GIT_CONFIG_VALUE_3, `Authorization: Basic ${Buffer.from('x-access-token:test-only').toString('base64')}`);
+  assert.equal(env.GIT_TRACE_CURL, undefined);
+  assert.equal(parent.GIT_CONFIG_COUNT, '1');
+  assert.throws(() => gitAuthEnv('', {}), /credential required/);
+  assert(!remoteMatches('git@github.com:owner/repo.git', config));
 });
 test('own checkpoint ignored, but same identity human feedback retained', () => {
   const marker = markerFor(taskKey(config, 1));
