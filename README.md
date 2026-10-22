@@ -22,13 +22,13 @@ Issue → DSH 实现 → 独立验收 → Pull Request
 
 推荐 **DeepSeek Harness 0.2.1-rc.2**，同时支持 **0.2.0-rc.2**；需要 **Node.js 22+ 和 Git**。[支持版本与安全升级 →](docs/compatibility.md)
 
-在 DSH 的 **Plugins → Add plugin** 中输入：
+在 DSH 的 **Plugins → Add plugin** 中输入已发布的 npm 固定版本：
 
 ```text
-github:yintaocheng/dsh-github-harness#v0.3.1
+dsh-github-harness@0.3.1
 ```
 
-安装后启用插件，按宿主提示完成重启。工具名称为 `github_harness`。[CLI 安装与详细步骤 →](docs/desktop.md)
+也可使用 GitHub 固定来源 `github:yintaocheng/dsh-github-harness#v0.3.1`。安装后启用插件，按宿主提示完成重启。工具名称为 `github_harness`。[安装步骤 →](docs/desktop.md) · [CLI 与分发来源 →](docs/distribution.md)
 
 ## 快速开始
 
