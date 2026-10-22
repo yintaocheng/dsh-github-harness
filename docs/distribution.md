@@ -1,50 +1,58 @@
-# 分发与发布状态
+# 安装来源与分发
 
 [← README](../README.md)
 
-## 当前：GitHub 固定版本
+## GitHub 固定版本
 
-使用官方插件管理器的 Git 安装来源：
+在 DSH 官方插件管理器中使用：
 
 ```text
-github:yintaocheng/dsh-github-harness#v0.3.0
+github:yintaocheng/dsh-github-harness#v0.3.1
 ```
 
-该标签指向插件源码，不是[演示项目](https://github.com/yintaocheng/dsh-github-harness-demo)。具体桌面安装与启用步骤见[桌面文档](desktop.md)。本包无需构建或安装生命周期脚本，可使用 `--ignore-scripts`。
+这是插件源码仓库，不是[演示项目](https://github.com/yintaocheng/dsh-github-harness-demo)。安装后还需启用 bundle，具体步骤见[桌面指南](desktop.md)。本包没有构建或安装生命周期脚本，不需要放行安装脚本。
 
-## npm：暂缓，不宣称已经上架
+## npm 来源
 
-按维护者当前决定，暂停 npm 登录与发布。`package.json` 已准备 `name/version/license/repository/keywords/publishConfig`，但**元数据准备不等于 npm 发布**。
+npm 与 GitHub 标签是独立的分发渠道。**只有官方 registry 可查、可下载的版本才算已发布**；本地包清单或 GitHub 标签存在不能代替此检查。
 
-当前不要以包名 `dsh-github-harness@0.3.0` 从 npm 或镜像安装。未来恢复发布时，需要先验证官方 registry 上的版本、可下载 tarball 与 integrity，再核验镜像是否同步；不能用 GitHub 安装成功替代这些检查。没有修改全局 npm registry、关闭 TLS 或将 token 放进仓库。
+先确认所需版本：
+
+```sh
+npm view dsh-github-harness@0.3.1 version dist.integrity --registry=https://registry.npmjs.org
+```
+
+如果查询不到该版本，使用上方 GitHub 固定标签，不要改用名字相近的包。版本可查后：
+
+- 桌面插件管理器的 npm 来源填写 `dsh-github-harness@0.3.1`，然后按提示启用。
+- 仅使用独立 CLI 时：
+
+  ```sh
+  npm install --global dsh-github-harness@0.3.1 --registry=https://registry.npmjs.org
+  dsh-github-harness help
+  ```
+
+镜像可能延迟同步；可用性和 integrity 应与官方 registry 核对。不要关闭 TLS 校验，也不需要为安装本插件改动全局 registry 设置。
 
 ## CLI 与 Host 的依赖边界
 
 | 入口 | 执行方式 | SDK 来源 |
 | --- | --- | --- |
-| CLI | Node 运行 `src/cli.mjs`；配置指向目标仓库及 headless 命令 | 自身仅用 Node 内置模块，不加载 Host SDK |
+| CLI | 运行安装后的 `dsh-github-harness`，或 Node 调用 [CLI 入口](../src/cli.mjs) | 自身只用 Node 内置模块，不加载 Host SDK |
 | DSH bundle / Host | 官方插件管理器安装并启用，注册 `github_harness` | 宿主提供 tools、sandbox、sandboxPolicy 等服务 |
 
-[包清单](../package.json)保留 Cordis `~4.0.4` 与 DSH SDK `0.2.0-rc.2` 的兼容范围。宿主 peers 在 npm 元数据中为 optional，使纯 CLI 安装不强制下载另一套宿主；**不放宽 Host 版本要求**，也不移除 tools / sandboxPolicy 必要注入或审批机制。
+推荐 DSH `0.2.1-rc.2`，同时支持 `0.2.0-rc.2`。[清单](../package.json)的 `engines.dsh`、SDK peers 和运行前版本预检保持一致；详见[版本与升级](compatibility.md)。Cordis 使用 `~4.0.4`，覆盖两个已验证宿主的版本。
 
-未挂载宿主 SDK 的普通 Node 环境不能把包根 Host 入口当作 CLI 来 import。不要用 `--force`、版本豁免或复制 runtime 来掩盖不兼容。
+宿主 peers 标为 optional，使纯 CLI 安装不强制下载另一套宿主；这**不豁免 Host 兼容检查**，也不移除必需注入或权限门。普通 Node 环境不能把包根的 Host 入口当 CLI import；不要手工复制 SDK、使用 `--force` 或版本豁免来掩盖不兼容。
 
-## 内容与验证
+## 包中包含什么
 
-分发 allowlist 仅包含运行源码、bundle patch、通用配置模板、Windows 凭据桥、许可证和使用文档。不包含目标仓库、任务状态、测试临时目录、本地配置、`.harness/`、`.reference/` 或具体演示证据。
+分发白名单只包含单 agent 运行源码、bundle patch、通用配置模板、Windows 凭据桥、许可证与使用文档。不包含多 agent / App 协作实现、目标仓库、任务状态、测试 profile、本地模型或账号配置、下载的运行时、`.harness/` 或 `.reference/`。
 
-维护者应在发布前分别检查：
-
-1. 插件回归测试与相对文档链接。
-2. 分发文件清单与敏感内容。
-3. 官方 CLI 在隔离 profile 中安装准确标签。
-4. 真实 Loader 注册、受限策略拒绝、显式目标目录的工具调用。
-5. 上传后的固定 SHA、许可证和对应 CI，而不只检查本地文件。
-
-[演示仓库](https://github.com/yintaocheng/dsh-github-harness-demo)保存具体运行与安装验证证据；本页定义分发方式，不混入个别任务的测试计数。
+维护者的发布检查包括回归与重启恢复、打包内容及敏感数据检查、真实宿主安装和 native / PTC 调用、受限权限拒绝、实际任务验证。npm 发布后还需核对 registry tarball、integrity 和全新安装；不能只凭上传命令的输出宣布成功。[演示仓库](https://github.com/yintaocheng/dsh-github-harness-demo)记录具体任务证据，与插件自身回归的测试数分开。
 
 ## 许可证与发现
 
 [MIT 许可证](../LICENSE)，Copyright (c) 2026 yintaocheng。再分发须保留版权及许可证文本。
 
-主仓库已设置 [`dsh-plugin`](https://github.com/topics/dsh-plugin) GitHub topic，npm keywords 也包含该值。标签帮助插件发现，但不是 DeepSeek 官方背书，也不保证所有第三方目录即时收录。演示仓库不打 `dsh-plugin` 标签，避免被误当作安装包。
+GitHub topic 与 npm keyword 使用 `dsh-plugin`，方便发现插件，但不是 DeepSeek 官方背书，也不保证第三方目录立即收录。演示仓库不是安装包。

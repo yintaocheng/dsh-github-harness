@@ -5,7 +5,7 @@
 ## 先准备什么
 
 - Node.js 22+ 和 Git。
-- DSH `0.2.0-rc.2`：这是当前插件声明支持、已核实接口的版本；不要用版本豁免代替兼容性验证。
+- 推荐 DSH `0.2.1-rc.2`，也支持 `0.2.0-rc.2`。这是分别验证的精确版本；请先阅读[版本与升级](compatibility.md)，不要用版本豁免代替验证。
 - 一个你有权写入的目标 GitHub 仓库，已有基线提交、测试命令和 Issue。运行目录必须是目标仓库根目录，工作区应保持干净。
 - 与配置一致的 GitHub 操作身份和可用的独立 headless 模型。
 
@@ -13,11 +13,11 @@
 
 ## 选择安装入口
 
-当前通过 GitHub 固定版本分发；npm 登录和发布暂缓，不使用未上架的包名安装。
+本页使用 GitHub 固定版本安装。其他来源和 npm 版本可用性的确认方法见[分发说明](distribution.md)。
 
 ### 桌面 Host 工具
 
-官方 **Plugins → Add plugin** 输入 `github:yintaocheng/dsh-github-harness#v0.3.0`，安装并启用。见[完整桌面步骤](desktop.md)。宿主提供 DSH SDK peers。
+官方 **Plugins → Add plugin** 输入 `github:yintaocheng/dsh-github-harness#v0.3.1`，安装并启用。见[完整桌面步骤](desktop.md)。宿主提供 DSH SDK peers。
 
 ### 独立源码 CLI
 
@@ -123,7 +123,7 @@ dsh-github-harness --config harness.local.json status 1
 
 ## 检查 DSH 模型
 
-`doctor` 只检查 DSH 命令能否启动，不验证模型凭据。首次使用时单独做一次最小调用：
+`doctor` 检查实际 DSH 版本、支持范围和命令能否启动，不验证模型凭据。未知或不可用版本会阻止 `run`；见[版本与升级](compatibility.md)。首次使用时单独做一次最小调用：
 
 ```powershell
 & 'C:\path\to\dsh.cmd' headless --json 'Reply only OK. Do not use tools.'

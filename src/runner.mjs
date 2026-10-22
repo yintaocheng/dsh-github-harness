@@ -6,14 +6,16 @@ import { load, save, acquire, unlock } from './state.mjs';
 import { runDsh } from './dsh.mjs';
 import { runTask } from './core.mjs';
 import { createRunContext, readLocalTask, isTaskBranch } from './identity.mjs';
-import { command, git } from './process.mjs';
+import { git } from './process.mjs';
+import { assertSafeDshCommand, inspectDsh, requireCompatibleDsh } from './compatibility.mjs';
 
 export function validateConfig(c) {
   for (const [key, value] of [['owner', c.owner], ['repo', c.repo], ['agent.id', c.agent?.id], ['agent.expectedLogin', c.agent?.expectedLogin]]) {
     if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(value) || value.includes('..')) throw Error(`Invalid config ${key}`);
   }
   if (typeof c.base !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_./-]*$/.test(c.base) || c.base.includes('..')) throw Error('Invalid base branch');
-  if (!Array.isArray(c.dsh?.command) || !c.dsh.command.length || c.dsh.command.some(x => typeof x !== 'string')) throw Error('dsh.command must be an argv array');
+  assertSafeDshCommand(c.dsh?.command);
+  if (c.collaboration?.enabled) throw Error('Multi-agent collaboration is not included in this single-agent release');
   if (!Array.isArray(c.verify) || !c.verify.length || c.verify.some(x => !Array.isArray(x) || !x.length || x.some(a => typeof a !== 'string'))) throw Error('verify must contain explicit argv arrays');
   return c;
 }
@@ -44,12 +46,13 @@ export async function execute(argv = [], { cwd = process.cwd(), signal, getToken
     const local = readLocalTask(root, config, issue);
     return { task: local.known ? local.state : null, session: local.session, lock: load(join(root, 'lock.json')) };
   }
+  const runtime = ['doctor', 'run'].includes(action) ? await inspectDsh(config, { cwd, signal, probeHelp: action === 'doctor' }) : undefined;
+  if (action === 'run') requireCompatibleDsh(runtime);
   const token = getToken ? await getToken({ expectedLogin: config.agent.expectedLogin, signal }) : process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   const github = new GitHub(config, { token, signal });
   if (action === 'doctor') {
     const access = await github.diagnose();
-    const dsh = await command([...config.dsh.command, '--help'], { cwd, signal });
-    return { cwd, expectedOwner: config.owner, repository: access.repository.full_name, actualOperator: access.login, agentId: config.agent.id, github: access, dshHelpExit: dsh.code, diagnosticFile: dsh.err };
+    return { cwd, expectedOwner: config.owner, repository: access.repository.full_name, actualOperator: access.login, agentId: config.agent.id, github: access, dsh: runtime, dshHelpExit: runtime.helpExit ?? 1, diagnosticFile: runtime.diagnosticFile };
   }
   signal?.throwIfAborted();
   mkdirSync(root, { recursive: true });
@@ -84,4 +87,4 @@ export async function execute(argv = [], { cwd = process.cwd(), signal, getToken
     return await runTask({ config, context, issue, state, github, repo, agent, persist, taskKnown: local.known, branches });
   } finally { lock.release(); }
 }
-export function diagnosisFailed(result) { return result?.github?.status === 'failed' || (result?.dshHelpExit !== undefined && result.dshHelpExit !== 0); }
+export function diagnosisFailed(result) { return result?.github?.status === 'failed' || result?.dsh?.status === 'failed' || (result?.dshHelpExit !== undefined && result.dshHelpExit !== 0); }

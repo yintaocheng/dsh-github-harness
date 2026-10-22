@@ -20,12 +20,12 @@ Issue → DSH 实现 → 独立验收 → Pull Request
 
 ## 安装
 
-需要 **DeepSeek Harness 0.2.0-rc.2、Node.js 22+ 和 Git**。
+推荐 **DeepSeek Harness 0.2.1-rc.2**，同时支持 **0.2.0-rc.2**；需要 **Node.js 22+ 和 Git**。[支持版本与安全升级 →](docs/compatibility.md)
 
 在 DSH 的 **Plugins → Add plugin** 中输入：
 
 ```text
-github:yintaocheng/dsh-github-harness#v0.3.0
+github:yintaocheng/dsh-github-harness#v0.3.1
 ```
 
 安装后启用插件，按宿主提示完成重启。工具名称为 `github_harness`。[CLI 安装与详细步骤 →](docs/desktop.md)
@@ -87,7 +87,7 @@ harness.local.json
 
 ## 使用须知
 
-- `doctor` 检查身份、仓库读取能力和 DSH 命令；它不会替你创建仓库或验证所有写权限。
+- `doctor` 检查身份、仓库读取能力，以及实际 DSH 版本和兼容性；它不验证模型凭据或所有写权限。
 - GitHub 配置必须匹配目标 checkout；不要通过复制任务缓存切换仓库或账户。
 - 工具需要宿主授权的文件、进程和网络访问。仅用于可信仓库：agent、测试和 Git hooks 都可能执行本地代码。
 

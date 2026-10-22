@@ -52,6 +52,31 @@ test('desktop workdir is relative to session workspace and signal is forwarded',
   assert.equal(observed.options.cwd, resolve(cwd, 'project')); assert.equal(observed.options.signal, exec.signal);
   assert.deepEqual(observed.argv, ['--config', 'custom.json', 'run', '5']); assert.equal(value.result.status, 'waiting');
 });
+test('workdir stays anchored to the original workspace after DSH changes execution cwd', async t => {
+  const cwd = fixture(t), ctx = context(cwd), exec = execution(); let observed;
+  ctx.workingDirectory = { get() { throw Error('Execution cwd must not replace the permission/workspace root'); } };
+  exec.agent = { session: { header: { cwd } } };
+  const tool = desktopTool(ctx, { approveEscalation: gate, run: async (_argv, options) => { observed = options.cwd; return {}; } });
+  await tool.execute({ action: 'status', issue: 1, workdir: 'project' }, exec);
+  assert.equal(observed, resolve(cwd, 'project'));
+});
+test('run rejects an unsupported CLI before credentials, repository or lock access', async t => {
+  const cwd = fixture(t); let credentials = 0;
+  await assert.rejects(execute(['--config', 'harness.local.json', 'run', '1'], { cwd, getToken: async () => { credentials++; return 'not-needed'; } }), /Unsupported or unavailable DSH/);
+  assert.equal(credentials, 0); assert(!existsSync(join(cwd, '.harness', 'lock.json')));
+});
+test('status does not require a working or supported DSH executable', async t => {
+  const cwd = fixture(t), path = join(cwd, 'harness.local.json');
+  const c = JSON.parse(readFileSync(path, 'utf8')); c.dsh.command = ['nonexistent-dsh-executable']; writeFileSync(path, JSON.stringify(c));
+  const result = await execute(['--config', 'harness.local.json', 'status', '1'], { cwd, getToken: () => { throw Error('No credential access'); } });
+  assert.deepEqual(result, { task: null, session: null, lock: null }); assert(!existsSync(join(cwd, '.harness')));
+});
+test('manifest and SDK peers use the same exact qualified DSH version allowlist', async () => {
+  const { DSH_ENGINE_RANGE } = await import('../src/compatibility.mjs');
+  const p = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  assert.equal(p.engines.dsh, DSH_ENGINE_RANGE);
+  for (const [name, range] of Object.entries(p.peerDependencies)) if (name.startsWith('@deepseek-ai/dsh-')) { assert.equal(range, DSH_ENGINE_RANGE); assert.equal(p.peerDependenciesMeta[name].optional, true); }
+});
 test('pre-aborted desktop call never enters runner; disposal aborts an active call', async t => {
   const cwd = fixture(t), lifetime = new AbortController(), active = new Set();
   let started;

@@ -19,7 +19,7 @@ CLI 还提供 `issue-create TITLE BODY_FILE` 与 `comment NUMBER BODY_FILE`。`c
 
 ## 一次执行会做什么
 
-1. 核对 GitHub `/user`、配置仓库、仓库权限及本地 HTTPS origin。
+1. 先检查配置的 DSH 版本和启动能力，未知版本或超时就停止；随后核对 GitHub `/user`、配置仓库、仓库权限及本地 HTTPS origin。
 2. 读取 Issue、评论、原 PR 的评论 / review / 行内评论及当前 head 的 CI 摘要。
 3. 新任务使用与执行者名称无关的分支 `harness/issue-<number>`；唯一匹配的旧任务继续保留原 `harness/<agent.id>/issue-<number>` 等工件别名，按需恢复原 DSH 任务会话。业务身份与旧 key 的区别见[项目模型](project-model.md)。
 4. 暂存并固定候选树，检查实际交付文件，独立执行 `verify`；随后再次固定树，拒绝验收过程中改变树或 HEAD 的情况。

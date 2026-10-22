@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { load } from './state.mjs';
+import { admitSessionReceipt } from './session-receipt.mjs';
 
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const projectKey = c => `github:${c.owner.toLowerCase()}/${c.repo.toLowerCase()}`;
@@ -100,7 +101,7 @@ export function taskCheckpoints(comments, config, issue) {
 
 // Read-only selection for status and run, including receipt-only interrupted sessions.
 // A second legacy executor key is NOT silently folded into the first task.
-export function readLocalTask(root, config, issue) {
+export function readLocalTask(root, config, issue, { cwd = dirname(root) } = {}) {
   const candidates = new Map();
   for (const name of existsSync(root) ? readdirSync(root) : []) {
     if (!name.endsWith('.json')) continue;
@@ -118,10 +119,11 @@ export function readLocalTask(root, config, issue) {
     candidates.set(key, candidate);
   }
   const records = [...candidates.values()];
-  selectArtifact(config, issue, records.flatMap(x => [x.state, x.receipt && { ...x, sessionId: x.receipt.sessionId }]));
+  const admitted = new Map(records.map(record => [record.key, admitSessionReceipt(record.receipt, { taskKey: record.key, knownSessionId: record.state?.sessionId, cwd, root, deferLegacy: true })]));
+  selectArtifact(config, issue, records.flatMap(x => [x.state, x.receipt && { ...x, sessionId: admitted.get(x.key) }]));
   const record = records[0];
   const state = record?.state || { version: 3, ...(record || { key: taskKey(config, issue), branch: branchName(config, issue) }) };
-  if (record?.receipt?.sessionId) state.sessionId ||= record.receipt.sessionId;
+  if (record && admitted.get(record.key)) state.sessionId ||= admitted.get(record.key);
   delete state.receipt;
   state.task = validateTaskIdentity(config, issue, state.task);
   return { state, known: Boolean(record), session: record?.receipt || null };

@@ -1,37 +1,49 @@
-# 已核实的 DSH 接口（2026-10-04）
+# DSH 接口与验证依据
 
-本机 `dsh --version` 为 `0.2.0-rc.2`。可点击的官方源码固定到 [`5badb15009ae1756c3afe0ae0cef1faafc290ccc`](https://github.com/deepseek-ai/deepseek-harness/tree/5badb15009ae1756c3afe0ae0cef1faafc290ccc)。实际 ASAR 声明的构建提交为 `04f392c9ddd144fa426da2045178797da6db6c11`，其公开 Contents API 返回 404；**两个提交不同**，不能把公开参考树当成安装包逐字相同的源码。本次另外只读解析了已安装 ASAR，并用桌面自带 CLI 和真实 Loader 交叉验证接口。普通文件工具无法把 ASAR 虚拟子路径当真实目录列出。
+[← README](../README.md) · [用户升级指南](compatibility.md)
 
-## 直接复用
+## 版本和证据边界
 
-- [Cordis 插件入门](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/docs/cordis-tutorial/01-first-plugin.md)：命名导出 `apply(ctx, config)`，`inject` 表达服务依赖。
-- [headless runner](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/bundle/headless/src/index.ts)：一次性独立 agent，真实 Session、工具与模型调用；恢复要求相同 cwd、存在的 root Session，不将任意 typo 当新会话。
-- [headless overlay](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/bundle/headless/cordis.patch.yml)：`dsh headless --patch PATH --json`；任务 `-` 从 stdin 读取，续跑 `--session-id ID`。
-- [NDJSON 源码](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/bundle/headless/src/json-stream.ts)：开头 `type=session,sessionId,cwd`；结尾 `type=status,phase=turn_end,reason={kind:completed}` 与 `type=final,text`。同时检查进程退出码，不只看最后一行文字。
-- [Session 文档](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/docs/subsystems/session.md)、[真实模型续跑测试](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/apps/cli/tests/profiles/headless/tests/resume.e2e.ts)：DSH 的 append-only 会话 / 持久化及恢复，不在本项目重新实现。
+2026-10-22 核对并分别验证 DSH `0.2.0-rc.2` 与 `0.2.1-rc.2`。前者使用桌面自带 CLI，后者使用官方 npm 的明确版本；实际安装和 Loader 调用在独立 `DSH_HOME` / profile 中完成，不启动运行中的 desktop profile。
 
-## 桌面 bundle 与工具契约
+本页源码链接固定到官方 [`dsh-v0.2.1-rc.2`](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.2.1-rc.2)。公开源码标签用于解释契约，不能代替安装产物的运行验证，也不证明与桌面安装包逐字相同。历史 `0.2.0-rc.2` 桌面 ASAR 曾声明构建 `04f392c9ddd144fa426da2045178797da6db6c11`，与当时公开参考提交 `5badb15009ae1756c3afe0ae0cef1faafc290ccc` 不同；不将两者混为一谈。
 
-- [bundle 解析](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/boot/app-boot/src/profile.ts)：包根声明 `dsh.bundle.patch`，YAML 用 `- insert:` 插入独立 Host 入口。仅导出 receipt 插件或 CLI bin 不够。
-- [defineTool 契约](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/docs/cookbook/adding-a-tool.md)：`ctx.tools.register(defineTool(...))`；参数使用 DSH 的 `parameters` DSL，结果声明 `output.schema/render`，执行接收 `exec.signal`，注册随 fiber 销毁而移除。
-- [官方权限门](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/boot/plugin-manager/src/tools.ts#L37-L44)：从 `@deepseek-ai/dsh-sandbox` 导入 `approveEscalation`，配合 `sandboxPolicy.resolve` 和可选 approval 服务。Host 原生 I/O 不会因为注册成工具而自动受工作区沙箱保护。
-- [工作目录来源](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/shell/tool-bash/src/index.ts#L145-L162)：policy workspace / `exec.agent.session.header.cwd`，不得采用插件安装 cwd 或全局 `process.chdir()`。
-- [插件管理器 UI](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/client/ui-plugin-manager/README.md) 与 [安装 spec](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/boot/plugin-manager/src/install-spec.ts)：安装与启用分开；固定 GitHub tag/SHA、绝对本地路径和 tarball 是有效来源。
-- [桌面自带 CLI](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/apps/desktop/README.md#bundled-command-runtime)：先完全退出 desktop，再用其自带 CLI 的 `plugin --profile desktop add/list/remove`；这不授权用 CLI boot/dump desktop。
-- [协议处理](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/apps/desktop/src/main.ts#L1228-L1232)：本版只处理打开/聚焦用途的 `dsh://open`，未发现可用的安装深链。
+## Host 工具契约
 
-隔离验收采用实际 launcher 的 `DSH_HOME` 与 `--from-default-profile headless --dump-config`，不是不存在的 `--home` 或 bare 模板。禁用测试 profile 的 `headless-startup/headless-runner` 后，在 `appReady` 检查 `ctx.tools.get('github_harness')`，再通过 `appExit` 有界退出；没有启动模型来“猜工具是否存在”。具体验证记录归档在[独立演示仓库](https://github.com/yintaocheng/dsh-github-harness-demo/tree/main/evidence)。
+- [Cordis 插件](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/docs/cordis-tutorial/01-first-plugin.md)：命名导出 `apply(ctx, config)`；`inject` 声明依赖。本插件必需 `tools`、`sandboxPolicy`，按调用取得可选 approval 服务。
+- [工具 schema](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/core/tools/src/schema.ts)：使用 `defineTool` 的属性映射 DSL，每个必需参数声明 `required: true`；不是把完整 object JSON Schema 塞进 `parameters`。
+- [工具运行时](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/core/tools/src/index.ts)：注册 `ctx.tools.register(...)`，声明 `output.schema/render`。执行函数返回声明的规范值；本插件返回 JSON 字符串，不返回旧式 `{content: [...]}` 包装。真实 native 与 PTC 调度均验证该契约。
+- [生命周期](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/docs/cordis-tutorial/02-lifecycle-and-effects.md)：注册随 fiber 回收，异步 disposer 可并行。插件自行中止并等待正在执行的调用，而不只移除工具名。
+- [审批](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/sandbox/sandbox/src/escalation.ts)：使用 `approveEscalation` 与 `sandboxPolicy.resolve`。Host 原生 I/O 不会自动获得文件沙箱保护，因此在配置读取、凭据查找和执行之前检查授权。只读 / workspace-write 且不允许审批时拒绝。
 
-## GitHub 官方示例的边界
+`0.2.1` 的新执行目录服务见[工作目录迁移说明](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/docs/upgrade-guide/v0.2.1-alpha.1/working-directory/guide.md)。本插件刻意保留工作区相对 `workdir`：policy workspace 优先，否则使用原始 session cwd；不跟随 `workingDirectory.get(session)` 的变化，不修改沙箱根，也不调用全局 `process.chdir()`。
 
-读过 [GitHub review 指南](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/docs/user/guide/github-review.md)、[overlay](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/apps/cli/config/examples/github-review/cordis.yml) 和 [rule](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/apps/cli/config/examples/github-review/github-ready-review-rule.mjs)。
+## headless 与根会话
 
-该示例以签名 webhook 创建只读 review Session，`202` 只代表接收，并非 agent 已完成；运行时不持久化 delivery/执行状态，重复 delivery 可能创建另一会话。webhook secret 不授予 outbound GitHub 权限。所以首版不直接用它来假装具备任务去重或 PR 发布能力。
+使用[官方 headless runner](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/bundle/headless/src/index.ts)，不另外实现 agent 或会话存储：
 
-另外检查了 [plugin-manager GitHub connection](https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/boot/plugin-manager/src/github-connection.ts)：这是安装器连接检查，不是可复用的 Issue/PR 业务接口。
+```text
+dsh headless --patch PATH --json [--session-id ID] -
+```
 
-## 本项目新增
+任务从 stdin 读取。[NDJSON 投影](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/bundle/headless/src/json-stream.ts)包含开头的 `sessionId/cwd`、终端 `status/turn_end` 及 `final/text`。进程退出码、完成原因、数据格式和根身份共同决定成功；出现 final 文本不代表可以发布。
 
-[薄 Cordis 插件](../src/plugin.mjs) 只用和官方 NDJSON 投影相同的 `ctx.on('session/event', ...)` seam，在 turn/start、turn/end 写出任务/session receipt；不调用未核实的私有 Web API。外层 [CLI](../src/cli.mjs) 使用 GitHub 官方 REST / Git 连接公共事实与 DSH。这样现在可以运行，将来需要改消息 / 上下文策略时仍有正式插件接入点。
+DSH 的续跑要求原始工作目录、存在且可恢复的根会话与持久化服务；子会话、fork、预设会话或错误 ID 不能静默当成新会话。新 runner 也会等待子任务稳定，并跟踪尚未被后续持久化终端事件清除的 agent 错误。
 
-模型与账号配置属于宿主或目标项目的本地设置，不属于插件分发包。具体模型调用和历史环境问题记录在[演示证据](https://github.com/yintaocheng/dsh-github-harness-demo/tree/main/evidence)中，不能将某台机器的可用路由当作所有用户的默认配置。
+[receipt 插件](../src/plugin.mjs)仅订阅 `session/event`：忽略子 / fork 会话和其他目录，固定期望或首次观察到的根 ID，并写入当前调用的随机 `runId`。外层[执行器](../src/dsh.mjs)交叉检查 receipt、NDJSON 身份、目录与退出状态；成功输出尚未通过交叉检查时，不把新 ID 保存为任务身份。
+
+[统一接纳规则](../src/session-receipt.mjs)同时用于执行器和重启后的本地任务发现。现代 receipt 必须标记 `root: true`，并匹配同一 `runId` 命名的实际 stdout 开头；进程日志独占创建，不能覆盖旧证据。被拒绝的新观察会持久标记，下一次启动仍拒绝。旧格式不带这些字段，因此只有与独立记录的既有身份相符才可迁移；receipt-only 旧记录只保留工件别名，等待可信检查点或人工核对。
+
+## 兼容声明与安装
+
+[新版兼容检查器](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/boot/app-boot/src/plugin-compatibility.ts)优先使用 `engines.dsh`，缺少它时才按 SDK peers 回退。本包的 engines、四个 SDK peer 范围与[运行前预检](../src/compatibility.mjs)使用相同的精确版本清单；optional peers 只避免纯 CLI 安装强制下载宿主，不豁免 Host 兼容检查。
+
+[包清单](../package.json)通过 `dsh.bundle.patch` 插入独立 [Host 入口](../src/desktop-plugin.mjs)。官方插件管理器支持固定 GitHub tag、绝对目录与 tarball；安装和启用不是同一步。更换已加载的包后按宿主提示重启，不以临时副本覆盖运行中的 desktop profile。
+
+隔离验收只对**确认不存在的全新 profile**使用一次 `--from-default-profile`。在 `0.2.1`，该选项会[替换已有 profile](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/docs/upgrade-guide/v0.2.1-alpha.2/from-default-profile-replaces-target/guide.md)，不能在每次探测或升级时重复调用。插件安装命令的 pnpm 参数转发也有版本区别：`0.2.1` 直接接受 add 后的选项，不要额外插入 `--`，否则选项可能被当成包名。用户安装优先遵循[桌面步骤](desktop.md)。
+
+## 不复用的边界
+
+GitHub webhook review 示例不是持久化任务调度器，安装器的 GitHub 连接检查也不是 Issue/PR 业务 API。本插件直接使用 GitHub 官方 REST 与 Git，独立管理任务去重、候选树验证和发布恢复，不调用未核实的私有 Web API。
+
+模型凭据和 provider 路由仍属于用户本地配置，不进入发布包。实际运行证据与个别任务测试数放在[独立演示项目](https://github.com/yintaocheng/dsh-github-harness-demo)，不将某台机器的模型配置当作通用默认值。

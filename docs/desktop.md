@@ -2,19 +2,19 @@
 
 [← README](../README.md)
 
-社区插件，使用 DSH 官方 bundle / Host 工具接口，兼容目标为 **DeepSeek Harness 0.2.0-rc.2**。不另开 Web 服务，也没有额外的任务管理页面。
+社区插件，使用 DSH 官方 bundle / Host 工具接口。推荐 **DSH 0.2.1-rc.2**，同时支持 **0.2.0-rc.2**，见[版本与升级](compatibility.md)。不另开 Web 服务，也没有额外的任务管理页面。
 
 ## 插件管理器安装
 
 在桌面 **Plugins → Add plugin** 输入：
 
 ```text
-github:yintaocheng/dsh-github-harness#v0.3.0
+github:yintaocheng/dsh-github-harness#v0.3.1
 ```
 
 检查后选择 **Install → Enable now**，遵循重启提示。安装与启用是两步。包没有 `prepare` / `postinstall`，无需为本包放行构建脚本。
 
-npm 发布暂缓；目前没有可用的 `dsh-github-harness@0.3.0` npm / 镜像发布承诺，见[分发状态](distribution.md)。
+npm 来源及版本可用性的确认方法见[分发说明](distribution.md)；不要把准备好包元数据当作版本已经公开。
 
 ## 官方桌面 CLI
 
@@ -22,7 +22,7 @@ npm 发布暂缓；目前没有可用的 `dsh-github-harness@0.3.0` npm / 镜像
 
 ```powershell
 $dsh = 'C:\Program Files\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd'
-& $dsh plugin --profile desktop add 'github:yintaocheng/dsh-github-harness#v0.3.0' --ignore-scripts
+& $dsh plugin --profile desktop add 'github:yintaocheng/dsh-github-harness#v0.3.1' --ignore-scripts
 & $dsh plugin --profile desktop list
 ```
 
@@ -55,7 +55,7 @@ $dsh = 'C:\Program Files\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd'
 
 先用 `doctor` 检查账户和仓库，再执行任务。Windows Host 工具先取进程环境凭据，否则使用 GCM 的内存输出；不会自动弹出 GitHub 登录页面。模型推理需要[单独验证](setup.md#检查-dsh-模型)。
 
-每次调用捕获自己的项目上下文，不使用插件安装 cwd，不改变全局 `process.cwd()`。任务由独立 headless 会话执行，新反馈继续同一任务；不同项目和 Issue 不混用任务状态。
+每次调用捕获自己的项目上下文，不使用插件安装 cwd，不改变全局 `process.cwd()`。相对 `workdir` 以会话原始工作区为基准，不跟随 DSH 0.2.1 中后续变化的执行目录；需要明确目标时使用绝对路径。任务由独立 headless 会话执行，新反馈继续同一任务；不同项目和 Issue 不混用任务状态。
 
 ## 权限与取消
 

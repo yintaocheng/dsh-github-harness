@@ -78,12 +78,13 @@ test('legacy state and DSH receipt migrate in place after executor change', t =>
   assert.deepEqual(selected.state.prepared, state.prepared);
   assert.deepEqual(JSON.parse(readFileSync(join(path, `${old.key}.json`), 'utf8')), state, 'selection must remain read-only');
 });
-test('receipt-only recovery retains the old session artifact alias', t => {
+test('legacy receipt-only recovery retains the artifact alias but defers unverified identity', t => {
   const path = scratch(t), old = legacy();
   writeFileSync(join(path, `${old.key}.session.json`), JSON.stringify({ taskKey: old.key, sessionId: 'original-session' }));
   const selected = readLocalTask(path, config, 1);
   assert.equal(selected.state.key, old.key); assert.equal(selected.state.branch, old.branch);
-  assert.equal(selected.state.sessionId, 'original-session'); assert.equal(selected.state.receipt, undefined);
+  assert.equal(selected.state.sessionId, undefined); assert.equal(selected.state.receipt, undefined);
+  assert.equal(selected.session.sessionId, 'original-session', 'retain legacy evidence without promoting it');
 });
 test('local multiple executor aliases or a canonical plus legacy alias fail closed', t => {
   for (const second of [legacy('second'), { key: taskKey(config, 1), branch: branchName(config, 1) }]) {
@@ -239,7 +240,9 @@ test('parallel project calls keep config and credential selection stable while a
   for (const item of credentials) { assert.equal(item.expectedLogin, 'actor'); assert.equal(item.signal, signal); }
   for (let i = 0; i < results.length; i++) {
     assert.equal(results[i].repository, `owner/${projects[i].selected.repo}`);
-    assert.equal(results[i].agentId, config.agent.id); assert.equal(results[i].cwd, projects[i].cwd); assert.equal(results[i].dshHelpExit, 0);
+    assert.equal(results[i].agentId, config.agent.id); assert.equal(results[i].cwd, projects[i].cwd);
+    assert.equal(results[i].dsh.status, 'failed'); assert.equal(results[i].dsh.reason, 'unsupported_version');
+    assert.equal(results[i].dsh.helpExit, undefined);
     assert(results[i].diagnosticFile.startsWith(projects[i].cwd));
   }
   assert(!requests.some(path => path.includes('/changed'))); assert.equal(process.cwd(), originalCwd);

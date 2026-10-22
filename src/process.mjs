@@ -44,7 +44,7 @@ export async function managedSpawn(exe, args, { cwd, env = process.env, stdio, s
 }
 
 // File descriptors, not captured named pipes: supported by the Windows DSH sandbox.
-export async function command(argv, { cwd = process.cwd(), env = process.env, input, onSpawn, signal, discardLogs = false, logDir = join(cwd, '.harness', 'logs') } = {}) {
+export async function command(argv, { cwd = process.cwd(), env = process.env, input, onSpawn, signal, discardLogs = false, logDir = join(cwd, '.harness', 'logs'), logId = randomUUID() } = {}) {
   signal?.throwIfAborted();
   if (!Array.isArray(argv) || !argv.length || argv.some(x => typeof x !== 'string')) throw Error('Command must be a nonempty string array');
   let [exe, ...args] = argv;
@@ -53,19 +53,19 @@ export async function command(argv, { cwd = process.cwd(), env = process.env, in
     args = ['/d', '/s', '/c', `"${argv.map(x => `"${x}"`).join(' ')}"`];
     exe = process.env.ComSpec || 'cmd.exe';
   }
+  if (typeof logId !== 'string' || !/^[A-Za-z0-9_-]{1,120}$/.test(logId)) throw Error('Invalid process log ID');
   mkdirSync(logDir, { recursive: true });
-  const id = randomUUID();
-  const out = join(logDir, `${id}.stdout`), err = join(logDir, `${id}.stderr`);
-  const fds = [];
+  const out = join(logDir, `${logId}.stdout`), err = join(logDir, `${logId}.stderr`);
+  const fds = [], created = [];
   try {
     fds.push(input ? openSync(input, 'r') : 'ignore');
-    fds.push(openSync(out, 'w', 0o600));
-    fds.push(openSync(err, 'w', 0o600));
+    fds.push(openSync(out, 'wx', 0o600)); created.push(out);
+    fds.push(openSync(err, 'wx', 0o600)); created.push(err);
     const code = await managedSpawn(exe, args, { cwd, env, stdio: fds, signal, onSpawn, windowsVerbatimArguments: process.platform === 'win32' && /(?:^|[\\/])cmd\.exe$/i.test(exe) });
     return { code, stdout: readFileSync(out, 'utf8'), stderr: readFileSync(err, 'utf8'), out: discardLogs ? undefined : out, err: discardLogs ? undefined : err };
   } finally {
     for (const fd of fds) if (typeof fd === 'number') closeSync(fd);
-    if (discardLogs) for (const path of [out, err]) { try { unlinkSync(path); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+    if (discardLogs) for (const path of created) { try { unlinkSync(path); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
   }
 }
 export async function git(args, options = {}) {

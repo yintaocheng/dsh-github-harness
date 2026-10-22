@@ -1,6 +1,6 @@
 {
   "name": "dsh-github-harness",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "Reusable DSH plugin and CLI for a single GitHub Issue-to-PR task in a target repository",
   "license": "MIT",
@@ -13,7 +13,7 @@
   "bugs": { "url": "https://github.com/yintaocheng/dsh-github-harness/issues" },
   "keywords": ["dsh-plugin", "deepseek-harness", "github", "issue", "pull-request", "single-agent", "cli"],
   "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org" },
-  "engines": { "node": ">=22" },
+  "engines": { "node": ">=22", "dsh": "0.2.0-rc.2 || 0.2.1-rc.2" },
   "bin": { "dsh-github-harness": "./src/cli.mjs" },
   "exports": {
     ".": "./src/desktop-plugin.mjs",
@@ -31,6 +31,7 @@
     "LICENSE",
     "docs/setup.md",
     "docs/desktop.md",
+    "docs/compatibility.md",
     "docs/operations.md",
     "docs/interfaces.md",
     "docs/distribution.md",
@@ -39,10 +40,10 @@
   "dsh": { "manifestVersion": 1, "bundle": { "patch": "./cordis.patch.yml" } },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
-    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-sandbox": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-sandbox-policy": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-user-approval": "0.2.0-rc.2"
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2 || 0.2.1-rc.2",
+    "@deepseek-ai/dsh-sandbox": "0.2.0-rc.2 || 0.2.1-rc.2",
+    "@deepseek-ai/dsh-sandbox-policy": "0.2.0-rc.2 || 0.2.1-rc.2",
+    "@deepseek-ai/dsh-user-approval": "0.2.0-rc.2 || 0.2.1-rc.2"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": { "optional": true },
